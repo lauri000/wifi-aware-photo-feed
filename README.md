@@ -16,6 +16,8 @@ The codebase currently contains a very dummy Android app whose only job is Wi-Fi
 
 Right now this machine has the Android SDK installed at `/Users/l/Library/Android/sdk`, but `adb` is not on the shell `PATH`. The repo includes a helper script that uses that SDK path directly.
 
+For fish shells on this machine, `adb` is now added via [`android-sdk.fish`](/Users/l/.config/fish/conf.d/android-sdk.fish) using `fish_add_path`, and `ANDROID_HOME` plus `ANDROID_SDK_ROOT` are exported from the same file.
+
 ### One-Time Phone Setup
 
 1. On the phone, enable Developer options.
