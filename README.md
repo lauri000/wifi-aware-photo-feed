@@ -12,6 +12,59 @@ The codebase currently contains a very dummy Android app whose only job is Wi-Fi
 ./gradlew assembleDebug
 ```
 
+## Developing With A USB Phone
+
+Right now this machine has the Android SDK installed at `/Users/l/Library/Android/sdk`, but `adb` is not on the shell `PATH`. The repo includes a helper script that uses that SDK path directly.
+
+### One-Time Phone Setup
+
+1. On the phone, enable Developer options.
+2. Enable USB debugging.
+3. Plug the phone in over USB.
+4. Accept the "Allow USB debugging" prompt on the phone.
+5. Verify the device is visible:
+
+```bash
+/Users/l/Library/Android/sdk/platform-tools/adb devices -l
+```
+
+You want to see a line ending in `device`. If you see nothing, or `unauthorized`, fix that first before trying to install the app.
+
+### Fast Dev Loop
+
+Build, install, and launch:
+
+```bash
+scripts/dev-phone.sh all
+```
+
+Tail app logs:
+
+```bash
+scripts/dev-phone.sh logcat
+```
+
+You can also run the steps separately:
+
+```bash
+scripts/dev-phone.sh build
+scripts/dev-phone.sh install
+scripts/dev-phone.sh run
+```
+
+### What To Expect
+
+- The app package is `com.lauri000.nostrwifiaware`.
+- The app writes its event log both to the screen and to logcat under the tag `NostrWifiAware`.
+- For Wi-Fi Aware to work, keep the app open on both phones.
+- Wi-Fi should be on.
+- Location services should be on.
+- Hotspot or tethering should be off.
+
+### Current State On This Machine
+
+As of April 1, 2026, `adb` was present in the SDK but your shell could not find it on `PATH`, and no USB device was visible from `adb devices -l` during my check. That means the next thing to fix is USB debugging connectivity, not the app build.
+
 ## MVP Summary
 
 The app keeps a list of trusted friends identified by `npub`. Internally, those `npub` values are decoded to raw Nostr public keys. When the app is opened, it starts Wi-Fi Aware discovery, looks for peers running the same app, verifies whether any discovered peer controls one of the trusted Nostr keys, and loads a bundled JSON dataset if at least one trusted friend is nearby.

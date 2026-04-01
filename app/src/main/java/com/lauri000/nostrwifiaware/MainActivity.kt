@@ -17,6 +17,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.Button
@@ -31,6 +32,7 @@ class MainActivity : Activity() {
     companion object {
         private const val serviceName = "nostr-wifi-aware"
         private const val permissionRequestCode = 1001
+        private const val logTag = "NostrWifiAware"
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -368,6 +370,7 @@ class MainActivity : Activity() {
 
     private fun appendLog(message: String) {
         val timestamp = timeFormat.format(Date())
+        Log.d(logTag, message)
         logLines.addLast("[$timestamp] $message")
         while (logLines.size > 200) {
             logLines.removeFirst()
