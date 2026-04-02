@@ -1490,7 +1490,6 @@ data class ControlsEnabled (
     var `takePhoto`: kotlin.Boolean, 
     var `startNearby`: kotlin.Boolean, 
     var `stop`: kotlin.Boolean, 
-    var `fetchFromPeer`: kotlin.Boolean, 
     var `shareAvailablePhotos`: kotlin.Boolean, 
     var `clearDemoData`: kotlin.Boolean, 
     var `clearLog`: kotlin.Boolean
@@ -1511,7 +1510,6 @@ public object FfiConverterTypeControlsEnabled: FfiConverterRustBuffer<ControlsEn
             FfiConverterBoolean.read(buf),
             FfiConverterBoolean.read(buf),
             FfiConverterBoolean.read(buf),
-            FfiConverterBoolean.read(buf),
         )
     }
 
@@ -1519,7 +1517,6 @@ public object FfiConverterTypeControlsEnabled: FfiConverterRustBuffer<ControlsEn
             FfiConverterBoolean.allocationSize(value.`takePhoto`) +
             FfiConverterBoolean.allocationSize(value.`startNearby`) +
             FfiConverterBoolean.allocationSize(value.`stop`) +
-            FfiConverterBoolean.allocationSize(value.`fetchFromPeer`) +
             FfiConverterBoolean.allocationSize(value.`shareAvailablePhotos`) +
             FfiConverterBoolean.allocationSize(value.`clearDemoData`) +
             FfiConverterBoolean.allocationSize(value.`clearLog`)
@@ -1529,7 +1526,6 @@ public object FfiConverterTypeControlsEnabled: FfiConverterRustBuffer<ControlsEn
             FfiConverterBoolean.write(value.`takePhoto`, buf)
             FfiConverterBoolean.write(value.`startNearby`, buf)
             FfiConverterBoolean.write(value.`stop`, buf)
-            FfiConverterBoolean.write(value.`fetchFromPeer`, buf)
             FfiConverterBoolean.write(value.`shareAvailablePhotos`, buf)
             FfiConverterBoolean.write(value.`clearDemoData`, buf)
             FfiConverterBoolean.write(value.`clearLog`, buf)
@@ -2011,19 +2007,28 @@ sealed class AndroidEvent {
         companion object
     }
     
-    object ResponderNetworkAvailable : AndroidEvent()
+    data class ResponderNetworkAvailable(
+        val `connectionId`: kotlin.Long) : AndroidEvent() {
+        companion object
+    }
     
+    data class ResponderNetworkLost(
+        val `connectionId`: kotlin.Long) : AndroidEvent() {
+        companion object
+    }
     
-    object ResponderNetworkLost : AndroidEvent()
+    data class InitiatorNetworkAvailable(
+        val `connectionId`: kotlin.Long) : AndroidEvent() {
+        companion object
+    }
     
-    
-    object InitiatorNetworkAvailable : AndroidEvent()
-    
-    
-    object InitiatorNetworkLost : AndroidEvent()
-    
+    data class InitiatorNetworkLost(
+        val `connectionId`: kotlin.Long) : AndroidEvent() {
+        companion object
+    }
     
     data class InitiatorCapabilities(
+        val `connectionId`: kotlin.Long, 
         val `port`: kotlin.Int, 
         val `ipv6`: kotlin.String?) : AndroidEvent() {
         companion object
@@ -2090,11 +2095,20 @@ public object FfiConverterTypeAndroidEvent : FfiConverterRustBuffer<AndroidEvent
             14 -> AndroidEvent.DiscoveryMessageFailed(
                 FfiConverterLong.read(buf),
                 )
-            15 -> AndroidEvent.ResponderNetworkAvailable
-            16 -> AndroidEvent.ResponderNetworkLost
-            17 -> AndroidEvent.InitiatorNetworkAvailable
-            18 -> AndroidEvent.InitiatorNetworkLost
+            15 -> AndroidEvent.ResponderNetworkAvailable(
+                FfiConverterLong.read(buf),
+                )
+            16 -> AndroidEvent.ResponderNetworkLost(
+                FfiConverterLong.read(buf),
+                )
+            17 -> AndroidEvent.InitiatorNetworkAvailable(
+                FfiConverterLong.read(buf),
+                )
+            18 -> AndroidEvent.InitiatorNetworkLost(
+                FfiConverterLong.read(buf),
+                )
             19 -> AndroidEvent.InitiatorCapabilities(
+                FfiConverterLong.read(buf),
                 FfiConverterInt.read(buf),
                 FfiConverterOptionalString.read(buf),
                 )
@@ -2214,30 +2228,35 @@ public object FfiConverterTypeAndroidEvent : FfiConverterRustBuffer<AndroidEvent
             // Add the size for the Int that specifies the variant plus the size needed for all fields
             (
                 4UL
+                + FfiConverterLong.allocationSize(value.`connectionId`)
             )
         }
         is AndroidEvent.ResponderNetworkLost -> {
             // Add the size for the Int that specifies the variant plus the size needed for all fields
             (
                 4UL
+                + FfiConverterLong.allocationSize(value.`connectionId`)
             )
         }
         is AndroidEvent.InitiatorNetworkAvailable -> {
             // Add the size for the Int that specifies the variant plus the size needed for all fields
             (
                 4UL
+                + FfiConverterLong.allocationSize(value.`connectionId`)
             )
         }
         is AndroidEvent.InitiatorNetworkLost -> {
             // Add the size for the Int that specifies the variant plus the size needed for all fields
             (
                 4UL
+                + FfiConverterLong.allocationSize(value.`connectionId`)
             )
         }
         is AndroidEvent.InitiatorCapabilities -> {
             // Add the size for the Int that specifies the variant plus the size needed for all fields
             (
                 4UL
+                + FfiConverterLong.allocationSize(value.`connectionId`)
                 + FfiConverterInt.allocationSize(value.`port`)
                 + FfiConverterOptionalString.allocationSize(value.`ipv6`)
             )
@@ -2343,22 +2362,27 @@ public object FfiConverterTypeAndroidEvent : FfiConverterRustBuffer<AndroidEvent
             }
             is AndroidEvent.ResponderNetworkAvailable -> {
                 buf.putInt(15)
+                FfiConverterLong.write(value.`connectionId`, buf)
                 Unit
             }
             is AndroidEvent.ResponderNetworkLost -> {
                 buf.putInt(16)
+                FfiConverterLong.write(value.`connectionId`, buf)
                 Unit
             }
             is AndroidEvent.InitiatorNetworkAvailable -> {
                 buf.putInt(17)
+                FfiConverterLong.write(value.`connectionId`, buf)
                 Unit
             }
             is AndroidEvent.InitiatorNetworkLost -> {
                 buf.putInt(18)
+                FfiConverterLong.write(value.`connectionId`, buf)
                 Unit
             }
             is AndroidEvent.InitiatorCapabilities -> {
                 buf.putInt(19)
+                FfiConverterLong.write(value.`connectionId`, buf)
                 FfiConverterInt.write(value.`port`, buf)
                 FfiConverterOptionalString.write(value.`ipv6`, buf)
                 Unit
@@ -2524,9 +2548,6 @@ sealed class UiAction {
     object StopRequested : UiAction()
     
     
-    object FetchFromPeerRequested : UiAction()
-    
-    
     object ShareAvailablePhotosRequested : UiAction()
     
     
@@ -2555,13 +2576,12 @@ public object FfiConverterTypeUiAction : FfiConverterRustBuffer<UiAction>{
             1 -> UiAction.TakePhotoRequested
             2 -> UiAction.StartNearbyRequested
             3 -> UiAction.StopRequested
-            4 -> UiAction.FetchFromPeerRequested
-            5 -> UiAction.ShareAvailablePhotosRequested
-            6 -> UiAction.ClearDemoDataRequested
-            7 -> UiAction.SwitchPage(
+            4 -> UiAction.ShareAvailablePhotosRequested
+            5 -> UiAction.ClearDemoDataRequested
+            6 -> UiAction.SwitchPage(
                 FfiConverterTypeUiPage.read(buf),
                 )
-            8 -> UiAction.ClearLogRequested
+            7 -> UiAction.ClearLogRequested
             else -> throw RuntimeException("invalid enum value, something is very wrong!!")
         }
     }
@@ -2580,12 +2600,6 @@ public object FfiConverterTypeUiAction : FfiConverterRustBuffer<UiAction>{
             )
         }
         is UiAction.StopRequested -> {
-            // Add the size for the Int that specifies the variant plus the size needed for all fields
-            (
-                4UL
-            )
-        }
-        is UiAction.FetchFromPeerRequested -> {
             // Add the size for the Int that specifies the variant plus the size needed for all fields
             (
                 4UL
@@ -2632,25 +2646,21 @@ public object FfiConverterTypeUiAction : FfiConverterRustBuffer<UiAction>{
                 buf.putInt(3)
                 Unit
             }
-            is UiAction.FetchFromPeerRequested -> {
+            is UiAction.ShareAvailablePhotosRequested -> {
                 buf.putInt(4)
                 Unit
             }
-            is UiAction.ShareAvailablePhotosRequested -> {
+            is UiAction.ClearDemoDataRequested -> {
                 buf.putInt(5)
                 Unit
             }
-            is UiAction.ClearDemoDataRequested -> {
-                buf.putInt(6)
-                Unit
-            }
             is UiAction.SwitchPage -> {
-                buf.putInt(7)
+                buf.putInt(6)
                 FfiConverterTypeUiPage.write(value.v1, buf)
                 Unit
             }
             is UiAction.ClearLogRequested -> {
-                buf.putInt(8)
+                buf.putInt(7)
                 Unit
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
@@ -2664,8 +2674,8 @@ public object FfiConverterTypeUiAction : FfiConverterRustBuffer<UiAction>{
 
 enum class UiPage {
     
-    CONFIG,
-    FEED;
+    FEED,
+    SETTINGS;
     companion object
 }
 

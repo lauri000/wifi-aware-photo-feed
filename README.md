@@ -6,17 +6,17 @@ The Wi-Fi Aware service type is `_nostrwifiaware._tcp`, using DNS-SD service-typ
 
 ## Current Prototype
 
-The codebase currently contains a photo-first peer-mode demo: a small Android app with two pages, `Config` and `Feed`. On `Config`, the app launches the camera only, keeps captured photos in app-owned hashtree-addressed storage, starts Wi-Fi Aware peer mode, fetches a nearby photo feed, and pushes its own available photos. It does not browse the gallery. On `Feed`, local photos and nearby photos are shown together in reverse chronological order.
+The codebase currently contains a photo-first peer-mode demo: a small Android app with two pages, `Feed` and `Settings`. `Feed` is the main consumer surface: it shows local photos plus nearby photos in one timeline, gives you a `Take Photo` button, and gives you a `Broadcast Photos` button. `Settings` holds nearby mode controls, reset actions, and the proof log. The app does not browse the gallery.
 
 Use it like this:
 
 1. Open the app on both phones.
 2. On one phone, tap `Take Photo` and capture one or more photos.
-3. Tap `Start Nearby` on both phones.
-4. Wait for the logs to show that the Wi-Fi Aware peer socket is connected. The app will decide internally which phone initiates the data path.
-5. Tap `Fetch From Peer` on the other phone.
-6. Verify that both phones log the same per-photo `nhash` values, and that the receiving phone logs receiver-side verification plus storage.
-7. Open the `Feed` page to confirm the fetched photos are present.
+3. Open `Settings` on both phones and tap `Start Nearby`.
+4. Wait for the status pills to show `Nearby on` and `1 nearby · 1 linked`. The app decides internally which phone initiates the data path.
+5. Go back to `Feed` on the sender and tap `Broadcast Photos`.
+6. Verify that the receiver accepts the photos automatically, logs receiver-side `nhash` verification, and stores them without prompting.
+7. Open `Feed` on the receiver to confirm the nearby photos are present.
 
 The crude split-increment plan is documented in [docs/nearby-hashtree-increments.md](/Users/l/Projects/iris/nostr-wifi-aware/docs/nearby-hashtree-increments.md).
 The earlier fuller nearby sync plan is still documented in [docs/nearby-hashtree-demo-plan.md](/Users/l/Projects/iris/nostr-wifi-aware/docs/nearby-hashtree-demo-plan.md) as historical context.
@@ -95,7 +95,7 @@ scripts/stay-awake.sh status
 
 - The app package is `com.lauri000.nostrwifiaware`.
 - The app writes its event log both to the screen and to logcat under the tag `NostrWifiAware`.
-- The current peer-mode increment proves one thing: captured photos with real hashtree `nhash` values can be fetched over a Wi-Fi Aware data path and verified on the receiving phone without manual host/client role selection.
+- The current peer-mode increment proves one thing: captured photos with real hashtree `nhash` values can be broadcast over a Wi-Fi Aware data path and verified on the receiving phone without manual host/client role selection.
 - The app uses camera capture via intent handoff and app-private file storage. It does not read from the gallery.
 - For Wi-Fi Aware to work, keep the app open on both phones.
 - Wi-Fi should be on.
@@ -104,7 +104,7 @@ scripts/stay-awake.sh status
 
 ### Current State On This Machine
 
-As of April 3, 2026, the current increment built successfully and was verified end to end on two USB-connected Pixel 9a devices. One phone launched the camera, captured a real JPEG, stored it under `files/demo/local/<nhash>.jpg`, and logged the computed hashtree `nhash`. Both phones then entered peer mode with `Start Nearby`, the receiver tapped `Fetch From Peer`, and the receiving phone logged both the Wi-Fi Aware transfer and receiver-side `nhash` verification before storing the photo under `files/demo/received/<nhash>.jpg`.
+As of April 3, 2026, the current increment built successfully and was verified end to end on two USB-connected Pixel 9a devices. One phone held a local photo collection, the other was cleared to zero photos, both phones entered nearby mode from `Settings`, and the sender tapped `Broadcast Photos` on `Feed`. The receiver then accepted the full collection automatically, logged receiver-side `nhash` verification for each photo, and stored the photos under `files/demo/received/<nhash>.jpg`.
 
 ## Current Shape
 
@@ -118,7 +118,7 @@ The current app is intentionally narrow:
 
 ## Next Likely Steps
 
-- add a tiny manifest so phones request only missing photos
-- add explicit dedupe/no-op reporting on repeated fetches
+- add a tiny manifest so broadcasts can skip already-known nearby photos before transfer
+- add clearer repeated-broadcast dedupe/no-op reporting in the UI
 - add trust rules above nearby sync
 - move from this demo toward a richer local social photo app

@@ -88,7 +88,6 @@ class MainActivity : Activity() {
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val ioExecutor = Executors.newCachedThreadPool()
-    private val socketWriteExecutor = Executors.newSingleThreadExecutor()
     private val coreExecutor = Executors.newSingleThreadExecutor()
     private val appInstance = "${Build.MODEL}-${System.currentTimeMillis().toString(16).takeLast(6)}"
     private val renderStateLock = Any()
@@ -102,16 +101,17 @@ class MainActivity : Activity() {
     private lateinit var modeView: TextView
     private lateinit var transportView: TextView
     private lateinit var storageView: TextView
-    private lateinit var localSummaryView: TextView
-    private lateinit var nearbySummaryView: TextView
+    private lateinit var localSummaryFeedView: TextView
+    private lateinit var nearbySummaryFeedView: TextView
+    private lateinit var localSummarySettingsView: TextView
+    private lateinit var nearbySummarySettingsView: TextView
     private lateinit var pageConfigButton: Button
-    private lateinit var pageFeedButton: Button
+    private lateinit var settingsBackButton: Button
     private lateinit var configPage: LinearLayout
     private lateinit var feedPage: LinearLayout
     private lateinit var takePhotoButton: Button
     private lateinit var startNearbyButton: Button
     private lateinit var stopButton: Button
-    private lateinit var fetchPeerButton: Button
     private lateinit var shareNowButton: Button
     private lateinit var clearDataButton: Button
     private lateinit var clearLogButton: Button
@@ -127,10 +127,10 @@ class MainActivity : Activity() {
     private val subscribeHandles = ConcurrentHashMap<Long, PeerHandle>()
     private val sockets = ConcurrentHashMap<Long, SocketResource>()
 
-    private var responderServerSocket: ServerSocket? = null
-    private var responderNetworkCallback: ConnectivityManager.NetworkCallback? = null
-    private var initiatorNetworkCallback: ConnectivityManager.NetworkCallback? = null
-    private var initiatorNetwork: Network? = null
+    private val responderServerSockets = ConcurrentHashMap<Long, ServerSocket>()
+    private val responderNetworkCallbacks = ConcurrentHashMap<Long, ConnectivityManager.NetworkCallback>()
+    private val initiatorNetworkCallbacks = ConcurrentHashMap<Long, ConnectivityManager.NetworkCallback>()
+    private val initiatorNetworks = ConcurrentHashMap<Long, Network>()
 
     private var pendingViewState: ViewState? = null
     private var renderScheduled = false
@@ -181,7 +181,6 @@ class MainActivity : Activity() {
         cleanupAndroidResources()
         coreExecutor.shutdownNow()
         ioExecutor.shutdownNow()
-        socketWriteExecutor.shutdownNow()
         appCore.close()
         super.onDestroy()
     }
@@ -243,14 +242,16 @@ class MainActivity : Activity() {
 
     private fun buildUi(): ScrollView {
         val contentPadding = dp(18)
-        val sectionSpacing = dp(16)
+        val sectionSpacing = dp(18)
 
         statusView = buildStatPill()
         modeView = buildStatPill()
         transportView = buildStatPill()
         storageView = buildStatPill()
-        localSummaryView = buildBodyText()
-        nearbySummaryView = buildBodyText()
+        localSummaryFeedView = buildBodyText()
+        nearbySummaryFeedView = buildBodyText()
+        localSummarySettingsView = buildBodyText()
+        nearbySummarySettingsView = buildBodyText()
         logView =
             TextView(this).apply {
                 setTextColor(parseColor("#b7c4da"))
@@ -261,10 +262,10 @@ class MainActivity : Activity() {
         feedContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         feedEmptyView = buildEmptyText()
 
-        pageConfigButton = buildMutedButton("Config").apply {
-            setOnClickListener { dispatchUiAction(UiAction.SwitchPage(UiPage.CONFIG)) }
+        pageConfigButton = buildGhostButton("Settings").apply {
+            setOnClickListener { dispatchUiAction(UiAction.SwitchPage(UiPage.SETTINGS)) }
         }
-        pageFeedButton = buildMutedButton("Feed").apply {
+        settingsBackButton = buildGhostButton("Back to Feed").apply {
             setOnClickListener { dispatchUiAction(UiAction.SwitchPage(UiPage.FEED)) }
         }
 
@@ -277,10 +278,7 @@ class MainActivity : Activity() {
         stopButton = buildMutedButton("Stop").apply {
             setOnClickListener { dispatchUiAction(UiAction.StopRequested) }
         }
-        fetchPeerButton = buildAccentButton("Fetch From Peer", "#38bdf8", "#06b6d4").apply {
-            setOnClickListener { dispatchUiAction(UiAction.FetchFromPeerRequested) }
-        }
-        shareNowButton = buildMutedButton("Share Available Photos").apply {
+        shareNowButton = buildAccentButton("Broadcast Photos", "#0ea5e9", "#22c55e").apply {
             setOnClickListener { dispatchUiAction(UiAction.ShareAvailablePhotosRequested) }
         }
         clearDataButton = buildMutedButton("Clear Demo Data").apply {
@@ -290,23 +288,6 @@ class MainActivity : Activity() {
             setOnClickListener { dispatchUiAction(UiAction.ClearLogRequested) }
         }
 
-        val pageSwitcher =
-            LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                background = roundedFill(parseColor("#101826"), parseColor("#26344a"), dp(24))
-                setPadding(dp(6), dp(6), dp(6), dp(6))
-                addView(
-                    pageConfigButton,
-                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
-                )
-                addView(
-                    pageFeedButton,
-                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                        marginStart = dp(8)
-                    },
-                )
-            }
-
         val headerCard =
             cardContainer(
                 colors = intArrayOf(parseColor("#17120f"), parseColor("#0d1220")),
@@ -314,26 +295,40 @@ class MainActivity : Activity() {
                 radiusDp = 34,
             ).apply {
                 addView(
-                    buildTag("OFFLINE PHOTO MESH", "#2b170d", "#8a4b1c"),
-                )
-                addView(spacer(dp(14)))
-                addView(
-                    TextView(this@MainActivity).apply {
-                        text = "Local Instagram"
-                        textSize = 34f
-                        setTextColor(Color.WHITE)
-                        setTypeface(Typeface.SERIF, Typeface.BOLD)
+                    LinearLayout(this@MainActivity).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        gravity = Gravity.CENTER_VERTICAL
+                        addView(
+                            LinearLayout(this@MainActivity).apply {
+                                orientation = LinearLayout.VERTICAL
+                                layoutParams =
+                                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                                addView(buildTag("LOCAL PHOTO MESH", "#2b170d", "#8a4b1c"))
+                                addView(spacer(dp(12)))
+                                addView(
+                                    TextView(this@MainActivity).apply {
+                                        text = "Local Instagram"
+                                        textSize = 34f
+                                        setTextColor(Color.WHITE)
+                                        setTypeface(Typeface.SERIF, Typeface.BOLD)
+                                    },
+                                )
+                                addView(
+                                    TextView(this@MainActivity).apply {
+                                        text = "Take photos, keep nearby mode on, and broadcast your collection to every nearby phone that links over Wi-Fi Aware."
+                                        textSize = 15f
+                                        setTextColor(parseColor("#d1d8e9"))
+                                        setPadding(0, dp(8), dp(12), 0)
+                                    },
+                                )
+                            },
+                        )
+                        addView(
+                            pageConfigButton,
+                            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT),
+                        )
                     },
                 )
-                addView(
-                    TextView(this@MainActivity).apply {
-                        text = "A camera-only social demo that keeps JPEGs in app-owned hashtree storage and moves them phone to phone over Wi-Fi Aware."
-                        textSize = 15f
-                        setTextColor(parseColor("#d1d8e9"))
-                        setPadding(0, dp(8), 0, dp(18))
-                    },
-                )
-                addView(pageSwitcher)
                 addView(spacer(dp(18)))
                 addView(statRow(statusView, modeView))
                 addView(spacer(dp(10)))
@@ -342,10 +337,26 @@ class MainActivity : Activity() {
 
         configPage =
             cardContainer().apply {
-                addView(sectionTitle("Control Room"))
+                addView(
+                    LinearLayout(this@MainActivity).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        gravity = Gravity.CENTER_VERTICAL
+                        addView(
+                            TextView(this@MainActivity).apply {
+                                text = "Settings"
+                                textSize = 24f
+                                setTextColor(Color.WHITE)
+                                setTypeface(Typeface.SANS_SERIF, Typeface.BOLD)
+                                layoutParams =
+                                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                            },
+                        )
+                        addView(settingsBackButton)
+                    },
+                )
                 addView(
                     TextView(this@MainActivity).apply {
-                        text = "Capture on this phone, light up nearby mode, fetch another phone's feed, or push your current photos back out."
+                        text = "Nearby mode, reset actions, and the proof log live here. The feed page stays focused on photos."
                         textSize = 13f
                         setTextColor(parseColor("#9fb2ce"))
                         setPadding(0, dp(6), 0, dp(14))
@@ -353,10 +364,10 @@ class MainActivity : Activity() {
                 )
                 addView(
                     miniCard(title = "This Phone", accent = parseColor("#fb923c")).apply {
-                        addView(localSummaryView)
+                        addView(localSummarySettingsView)
                         addView(
                             TextView(this@MainActivity).apply {
-                                text = "Use the camera only. No gallery access."
+                                text = "Camera only. Photos stay in app-private storage."
                                 textSize = 12f
                                 setTextColor(parseColor("#7f8da7"))
                                 setPadding(0, dp(8), 0, 0)
@@ -367,10 +378,10 @@ class MainActivity : Activity() {
                 addView(spacer(dp(10)))
                 addView(
                     miniCard(title = "Nearby Peer", accent = parseColor("#38bdf8")).apply {
-                        addView(nearbySummaryView)
+                        addView(nearbySummarySettingsView)
                         addView(
                             TextView(this@MainActivity).apply {
-                                text = "Wi-Fi Aware sync happens only while both phones stay open."
+                                text = "Nearby phones receive broadcasts immediately and deduplicate by nhash."
                                 textSize = 12f
                                 setTextColor(parseColor("#7f8da7"))
                                 setPadding(0, dp(8), 0, 0)
@@ -380,29 +391,29 @@ class MainActivity : Activity() {
                 )
                 addView(spacer(dp(14)))
                 addView(
-                    miniCard(title = "Capture + Presence", accent = parseColor("#f97316")).apply {
-                        addView(buttonRow(takePhotoButton, startNearbyButton))
-                    },
-                )
-                addView(spacer(dp(10)))
-                addView(
-                    miniCard(title = "Move Photos", accent = parseColor("#0ea5e9")).apply {
-                        addView(buttonRow(fetchPeerButton, shareNowButton))
+                    miniCard(title = "Nearby Mode", accent = parseColor("#0ea5e9")).apply {
+                        addView(buttonRow(startNearbyButton, stopButton))
                     },
                 )
                 addView(spacer(dp(10)))
                 addView(
                     miniCard(title = "Reset + Cleanup", accent = parseColor("#7c3aed")).apply {
-                        addView(buttonRow(stopButton, clearDataButton))
+                        addView(buttonRow(clearDataButton, clearLogButton))
                         addView(spacer(dp(10)))
-                        addView(buttonRow(clearLogButton))
+                        addView(
+                            TextView(this@MainActivity).apply {
+                                text = "Clearing demo data removes local and received photos on this phone."
+                                textSize = 12f
+                                setTextColor(parseColor("#7f8da7"))
+                            },
+                        )
                     },
                 )
                 addView(spacer(dp(18)))
                 addView(sectionTitle("Proof Log"))
                 addView(
                     TextView(this@MainActivity).apply {
-                        text = "Every discovery event, socket connection, transfer, and nhash verification lands here."
+                        text = "Discovery, pairing, transfer, and nhash verification events land here."
                         textSize = 13f
                         setTextColor(parseColor("#9fb2ce"))
                         setPadding(0, dp(6), 0, dp(12))
@@ -420,19 +431,24 @@ class MainActivity : Activity() {
                 addView(sectionTitle("Photo Feed"))
                 addView(
                     TextView(this@MainActivity).apply {
-                        text = "Newest first. Local captures and nearby fetches live in one timeline."
+                        text = "One timeline. Your photos and nearby broadcasts live together in newest-first order."
                         textSize = 13f
                         setTextColor(parseColor("#9fb2ce"))
                         setPadding(0, dp(6), 0, dp(12))
                     },
                 )
                 addView(
-                    miniCard(title = "Feed Rules", accent = parseColor("#ec4899")).apply {
+                    miniCard(title = "Quick Actions", accent = parseColor("#ec4899")).apply {
+                        addView(buttonRow(takePhotoButton, shareNowButton))
+                        addView(spacer(dp(10)))
+                        addView(localSummaryFeedView.apply { setPadding(0, 0, 0, dp(4)) })
+                        addView(nearbySummaryFeedView)
                         addView(
                             TextView(this@MainActivity).apply {
-                                text = "Open Config to capture or sync. The feed keeps the photos and the proof-oriented metadata together."
+                                text = "Once nearby mode is on in Settings, broadcast pushes your current collection to nearby phones automatically."
                                 textSize = 13f
                                 setTextColor(parseColor("#d7def0"))
+                                setPadding(0, dp(10), 0, 0)
                             },
                         )
                     },
@@ -448,9 +464,9 @@ class MainActivity : Activity() {
                 setPadding(contentPadding, contentPadding, contentPadding, contentPadding)
                 addView(headerCard)
                 addView(spacer(sectionSpacing))
-                addView(configPage)
-                addView(spacer(sectionSpacing))
                 addView(feedPage)
+                addView(spacer(sectionSpacing))
+                addView(configPage)
                 addView(spacer(dp(24)))
             }
 
@@ -530,8 +546,10 @@ class MainActivity : Activity() {
         modeView.text = viewState.modeText
         transportView.text = viewState.linkText
         storageView.text = viewState.storageText
-        localSummaryView.text = viewState.localSummaryText
-        nearbySummaryView.text = viewState.nearbySummaryText
+        localSummaryFeedView.text = viewState.localSummaryText
+        nearbySummaryFeedView.text = viewState.nearbySummaryText
+        localSummarySettingsView.text = viewState.localSummaryText
+        nearbySummarySettingsView.text = viewState.nearbySummaryText
 
         val controls = viewState.controlsEnabled
         applyControls(controls)
@@ -544,17 +562,15 @@ class MainActivity : Activity() {
         setButtonState(takePhotoButton, controls.takePhoto)
         setButtonState(startNearbyButton, controls.startNearby)
         setButtonState(stopButton, controls.stop)
-        setButtonState(fetchPeerButton, controls.fetchFromPeer)
         setButtonState(shareNowButton, controls.shareAvailablePhotos)
         setButtonState(clearDataButton, controls.clearDemoData)
         setButtonState(clearLogButton, controls.clearLog)
     }
 
     private fun applyPage(page: UiPage) {
-        configPage.visibility = if (page == UiPage.CONFIG) View.VISIBLE else View.GONE
+        configPage.visibility = if (page == UiPage.SETTINGS) View.VISIBLE else View.GONE
         feedPage.visibility = if (page == UiPage.FEED) View.VISIBLE else View.GONE
-        stylePageButton(pageConfigButton, page == UiPage.CONFIG)
-        stylePageButton(pageFeedButton, page == UiPage.FEED)
+        setButtonState(pageConfigButton, page != UiPage.SETTINGS)
     }
 
     private fun applyFeed(feedItems: List<FeedItem>) {
@@ -562,7 +578,7 @@ class MainActivity : Activity() {
             renderedFeedSignature = ""
             feedContainer.removeAllViews()
             feedEmptyView.visibility = View.VISIBLE
-            feedEmptyView.text = "No photos yet. Take a photo on Config, or fetch a nearby feed."
+            feedEmptyView.text = "No photos yet. Take a photo, then broadcast it to nearby phones."
             return
         }
 
@@ -830,9 +846,8 @@ class MainActivity : Activity() {
             val session = publishSession ?: return@runOnMain
             val peerHandle = publishHandles[command.handleId] ?: return@runOnMain
             try {
-                responderServerSocket?.close()
                 val serverSocket = ServerSocket(0)
-                responderServerSocket = serverSocket
+                responderServerSockets[command.connectionId] = serverSocket
                 ioExecutor.execute {
                     try {
                         val socket = serverSocket.accept()
@@ -859,22 +874,22 @@ class MainActivity : Activity() {
                         .setNetworkSpecifier(specifier)
                         .build()
 
-                responderNetworkCallback =
+                val responderNetworkCallback =
                     object : ConnectivityManager.NetworkCallback() {
                         override fun onAvailable(network: Network) {
-                            dispatchAndroidEvent(AndroidEvent.ResponderNetworkAvailable)
+                            dispatchAndroidEvent(AndroidEvent.ResponderNetworkAvailable(command.connectionId))
                         }
 
                         override fun onLost(network: Network) {
-                            dispatchAndroidEvent(AndroidEvent.ResponderNetworkLost)
+                            dispatchAndroidEvent(AndroidEvent.ResponderNetworkLost(command.connectionId))
                         }
 
                         override fun onUnavailable() {
-                            dispatchAndroidEvent(AndroidEvent.ResponderNetworkLost)
+                            dispatchAndroidEvent(AndroidEvent.ResponderNetworkLost(command.connectionId))
                         }
                     }
-
-                connectivityManager.requestNetwork(request, responderNetworkCallback!!)
+                responderNetworkCallbacks[command.connectionId] = responderNetworkCallback
+                connectivityManager.requestNetwork(request, responderNetworkCallback)
             } catch (e: Exception) {
                 dispatchAndroidEvent(
                     AndroidEvent.SocketError(command.connectionId, e.message ?: "Responder setup failed"),
@@ -897,11 +912,11 @@ class MainActivity : Activity() {
                     .setNetworkSpecifier(specifier)
                     .build()
 
-            initiatorNetworkCallback =
+            val initiatorNetworkCallback =
                 object : ConnectivityManager.NetworkCallback() {
                     override fun onAvailable(network: Network) {
-                        initiatorNetwork = network
-                        dispatchAndroidEvent(AndroidEvent.InitiatorNetworkAvailable)
+                        initiatorNetworks[command.connectionId] = network
+                        dispatchAndroidEvent(AndroidEvent.InitiatorNetworkAvailable(command.connectionId))
                     }
 
                     override fun onCapabilitiesChanged(
@@ -911,6 +926,7 @@ class MainActivity : Activity() {
                         val awareInfo = networkCapabilities.transportInfo as? WifiAwareNetworkInfo ?: return
                         dispatchAndroidEvent(
                             AndroidEvent.InitiatorCapabilities(
+                                command.connectionId,
                                 awareInfo.port,
                                 awareInfo.peerIpv6Addr?.hostAddress,
                             ),
@@ -918,22 +934,22 @@ class MainActivity : Activity() {
                     }
 
                     override fun onLost(network: Network) {
-                        dispatchAndroidEvent(AndroidEvent.InitiatorNetworkLost)
+                        dispatchAndroidEvent(AndroidEvent.InitiatorNetworkLost(command.connectionId))
                     }
 
                     override fun onUnavailable() {
-                        dispatchAndroidEvent(AndroidEvent.InitiatorNetworkLost)
+                        dispatchAndroidEvent(AndroidEvent.InitiatorNetworkLost(command.connectionId))
                     }
                 }
-
-            connectivityManager.requestNetwork(request, initiatorNetworkCallback!!)
+            initiatorNetworkCallbacks[command.connectionId] = initiatorNetworkCallback
+            connectivityManager.requestNetwork(request, initiatorNetworkCallback)
         }
     }
 
     private fun executeConnectInitiatorSocket(command: AndroidCommand.ConnectInitiatorSocket) {
         ioExecutor.execute {
             try {
-                val network = initiatorNetwork ?: throw IOException("Initiator network unavailable")
+                val network = initiatorNetworks[command.connectionId] ?: throw IOException("Initiator network unavailable")
                 val address = Inet6Address.getByName(command.ipv6) as Inet6Address
                 val socket = network.socketFactory.createSocket(address, command.port)
                 bindSocket(command.connectionId, SocketSide.INITIATOR, socket)
@@ -986,7 +1002,7 @@ class MainActivity : Activity() {
     }
 
     private fun executeWriteSocketBytes(command: AndroidCommand.WriteSocketBytes) {
-        socketWriteExecutor.execute {
+        ioExecutor.execute {
             val resource = sockets[command.connectionId] ?: return@execute
             try {
                 synchronized(resource.output) {
@@ -1016,6 +1032,25 @@ class MainActivity : Activity() {
             resource.socket.close()
         } catch (_: Exception) {
         }
+        responderServerSockets.remove(connectionId)?.let {
+            try {
+                it.close()
+            } catch (_: Exception) {
+            }
+        }
+        responderNetworkCallbacks.remove(connectionId)?.let {
+            try {
+                connectivityManager.unregisterNetworkCallback(it)
+            } catch (_: Exception) {
+            }
+        }
+        initiatorNetworkCallbacks.remove(connectionId)?.let {
+            try {
+                connectivityManager.unregisterNetworkCallback(it)
+            } catch (_: Exception) {
+            }
+        }
+        initiatorNetworks.remove(connectionId)
         dispatchAndroidEvent(AndroidEvent.SocketClosed(connectionId))
     }
 
@@ -1030,27 +1065,29 @@ class MainActivity : Activity() {
             awareSession = null
             publishHandles.clear()
             subscribeHandles.clear()
-
-            responderNetworkCallback?.let {
-                try {
-                    connectivityManager.unregisterNetworkCallback(it)
-                } catch (_: Exception) {
-                }
-            }
-            initiatorNetworkCallback?.let {
-                try {
-                    connectivityManager.unregisterNetworkCallback(it)
-                } catch (_: Exception) {
-                }
-            }
-            responderNetworkCallback = null
-            initiatorNetworkCallback = null
-            initiatorNetwork = null
         }
-
-        responderServerSocket?.close()
-        responderServerSocket = null
-
+        responderNetworkCallbacks.values.forEach {
+            try {
+                connectivityManager.unregisterNetworkCallback(it)
+            } catch (_: Exception) {
+            }
+        }
+        initiatorNetworkCallbacks.values.forEach {
+            try {
+                connectivityManager.unregisterNetworkCallback(it)
+            } catch (_: Exception) {
+            }
+        }
+        responderNetworkCallbacks.clear()
+        initiatorNetworkCallbacks.clear()
+        initiatorNetworks.clear()
+        responderServerSockets.values.forEach {
+            try {
+                it.close()
+            } catch (_: Exception) {
+            }
+        }
+        responderServerSockets.clear()
         sockets.keys.toList().forEach(::closeSocket)
     }
 

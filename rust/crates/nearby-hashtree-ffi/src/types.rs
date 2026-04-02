@@ -2,8 +2,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
 pub enum UiPage {
-    Config,
     Feed,
+    Settings,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
@@ -23,7 +23,6 @@ pub enum UiAction {
     TakePhotoRequested,
     StartNearbyRequested,
     StopRequested,
-    FetchFromPeerRequested,
     ShareAvailablePhotosRequested,
     ClearDemoDataRequested,
     SwitchPage(UiPage),
@@ -50,11 +49,12 @@ pub enum AndroidEvent {
     },
     DiscoveryMessageSent { message_id: i64 },
     DiscoveryMessageFailed { message_id: i64 },
-    ResponderNetworkAvailable,
-    ResponderNetworkLost,
-    InitiatorNetworkAvailable,
-    InitiatorNetworkLost,
+    ResponderNetworkAvailable { connection_id: i64 },
+    ResponderNetworkLost { connection_id: i64 },
+    InitiatorNetworkAvailable { connection_id: i64 },
+    InitiatorNetworkLost { connection_id: i64 },
     InitiatorCapabilities {
+        connection_id: i64,
         port: i32,
         ipv6: Option<String>,
     },
@@ -125,7 +125,6 @@ pub struct ControlsEnabled {
     pub take_photo: bool,
     pub start_nearby: bool,
     pub stop: bool,
-    pub fetch_from_peer: bool,
     pub share_available_photos: bool,
     pub clear_demo_data: bool,
     pub clear_log: bool,
@@ -174,4 +173,3 @@ pub struct VerifyStoredPhotoResult {
     pub message: String,
     pub stored_photo: Option<StoredPhoto>,
 }
-

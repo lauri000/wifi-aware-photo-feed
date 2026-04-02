@@ -61,32 +61,32 @@ Scope:
 - both phones expose a single `Start Nearby` action
 - under the hood, each phone publishes and subscribes at the same time
 - a deterministic tie-break picks which phone initiates the Wi-Fi Aware data path
-- `Fetch From Peer` works from either connected phone
-- `Share Available Shelf` can send anything the phone has already seeded or fetched
+- once linked, either phone can push its current collection to the other
+- nearby sync no longer depends on manual host/client selection
 
 Success criteria:
 
 - both phones can tap `Start Nearby` without manually choosing host or client
 - logs still prove one side initiated and the other responded on the Wi-Fi Aware data path
-- an empty phone can fetch a nearby photo feed after both simply start nearby mode
+- an empty phone can receive a nearby photo feed after both simply start nearby mode
 - receiver-side `nhash` verification still happens on every transferred file
 
 ## Increment 3
 
-Photo feed transfer over Wi-Fi Aware.
+Photo feed broadcast over Wi-Fi Aware.
 
 Scope:
 
-- two pages: `Config` and `Feed`
-- `Fetch From Peer` requests the nearby phone's available photos
-- `Share Available Photos` pushes whatever this phone currently has
+- two pages: `Feed` and `Settings`
+- `Broadcast Photos` pushes whatever this phone currently has to every linked nearby peer
+- receivers accept the photos automatically and store them after verification
 - receiver stores verified photos separately from locally captured ones
 - both local and nearby photos appear in one combined feed
 
 Success criteria:
 
 - one phone can capture a real photo
-- the other phone can fetch it over the Wi-Fi Aware data path
+- the other phone can receive it over the Wi-Fi Aware data path
 - sender and receiver log the same announced `nhash`
 - receiver logs receiver-side verification and storage
 - receiver feed shows the transferred photo
