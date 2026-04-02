@@ -34,25 +34,23 @@ Out of scope:
 
 ## Increment 2
 
-Two deterministic seeded audio sets transferred over Wi-Fi Aware.
+Camera capture plus local hashtree-addressed photo storage.
 
 Scope:
 
-- keep the current `Host` / `Client` Wi-Fi Aware transport split
-- add explicit `Seed Set A` and `Seed Set B` buttons
-- generate a tiny deterministic local audio set on-device for each seed choice
-- compute a real hashtree `nhash` for every seeded audio file
-- send the currently seeded set over the Wi-Fi Aware data path to the host
-- recompute and verify every received file by `nhash` on the host
-- store verified received files locally and show them in the UI/log
+- replace seeding with real camera capture
+- do not access the gallery
+- write captured JPEGs into app-private storage
+- compute a real hashtree `nhash` for every captured file
+- show captured photos locally in the app
 
 Success criteria:
 
-- `Seed Set A` creates the expected local audio files and logs their `nhash` values
-- `Seed Set B` creates the expected local audio files and logs their `nhash` values
-- the client logs that seeded tracks are being sent over the Wi-Fi Aware data path
-- the host logs that each received track was verified by recomputing the same `nhash`
-- the host stores the verified received files locally
+- tapping `Take Photo` launches the camera app
+- confirming a shot returns to the app
+- the app logs the captured photo's `nhash`
+- the captured file exists under app-private storage keyed by `nhash`
+- the local feed shows the captured photo
 
 ## Increment 2.5
 
@@ -70,59 +68,68 @@ Success criteria:
 
 - both phones can tap `Start Nearby` without manually choosing host or client
 - logs still prove one side initiated and the other responded on the Wi-Fi Aware data path
-- an empty phone can fetch the full 4-track shelf from a nearby phone after both simply start nearby mode
+- an empty phone can fetch a nearby photo feed after both simply start nearby mode
 - receiver-side `nhash` verification still happens on every transferred file
 
 ## Increment 3
+
+Photo feed transfer over Wi-Fi Aware.
+
+Scope:
+
+- two pages: `Config` and `Feed`
+- `Fetch From Peer` requests the nearby phone's available photos
+- `Share Available Photos` pushes whatever this phone currently has
+- receiver stores verified photos separately from locally captured ones
+- both local and nearby photos appear in one combined feed
+
+Success criteria:
+
+- one phone can capture a real photo
+- the other phone can fetch it over the Wi-Fi Aware data path
+- sender and receiver log the same announced `nhash`
+- receiver logs receiver-side verification and storage
+- receiver feed shows the transferred photo
+
+## Increment 4
 
 Add tiny manifests and dedupe.
 
 Scope:
 
-- exchange a tiny manifest for the currently seeded set
-- explicit `Show Missing`
-- explicit receiver-pull fetch of only missing hashes
-- no-op on repeated fetch when everything is already present
+- exchange a tiny manifest of nearby photos
+- request only missing `nhash` values
+- make repeat fetches a no-op when everything is already present
+- make dedupe explicit in UI/logs
 
 Success criteria:
 
 - each phone can see the other phone's manifest summary
-- one phone can fetch only the missing files
+- one phone fetches only missing photos
 - a second fetch stores nothing new and reports dedupe / already-present
 
-## Increment 4
+## Increment 5
 
 Add the trust gate.
 
 Scope:
 
 - fixed trusted `npub` list only
-- signed challenge proof before manifest exchange or blob fetch
+- signed challenge proof before manifest exchange or photo fetch
 - refuse sync if the peer is not trusted
 
 Future improvement note:
 
 - replace fixed trusted `npub`s with social-graph-based trust later
 
-## Increment 5
-
-Turn the demo data into a crude audio demo.
-
-Scope:
-
-- deterministic generated audio files
-- very small local catalog
-- simple search
-- simple local playback
-- newly fetched tracks appear after refresh
-
 ## Increment 6
 
-Move from the audio demo toward richer nearby content sync.
+Move from the photo demo toward richer nearby content sync.
 
 Candidates:
 
-- better indexes
-- content packs
-- Nostr event segment indexes
+- better photo manifests
+- richer feed metadata
+- social filtering
+- store-and-forward policies
 - stronger sync protocol

@@ -2,15 +2,17 @@ package com.lauri000.nostrwifiaware
 
 import android.Manifest
 import android.app.Activity
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
-import android.media.MediaPlayer
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.net.Uri
 import android.net.wifi.aware.AttachCallback
 import android.net.wifi.aware.DiscoverySession
 import android.net.wifi.aware.DiscoverySessionCallback
@@ -27,23 +29,23 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.text.Editable
-import android.text.InputType
-import android.text.TextWatcher
+import android.provider.MediaStore
 import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
-import android.widget.EditText
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import androidx.core.content.FileProvider
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.EOFException
+import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
@@ -57,12 +59,16 @@ import java.util.concurrent.Executors
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import kotlin.math.min
-import kotlin.math.roundToInt
 
 class MainActivity : Activity() {
     private enum class Role {
         IDLE,
         PEER,
+    }
+
+    private enum class Page {
+        CONFIG,
+        FEED,
     }
 
     private enum class DataPathRole {
@@ -71,7 +77,7 @@ class MainActivity : Activity() {
         INITIATOR,
     }
 
-    private data class TrackAck(
+    private data class FileAck(
         val success: Boolean,
         val actualNhash: String?,
         val alreadyPresent: Boolean,
@@ -81,15 +87,17 @@ class MainActivity : Activity() {
     companion object {
         private const val serviceName = "nostr-wifi-aware"
         private const val permissionRequestCode = 1001
+        private const val cameraRequestCode = 2001
         private const val logTag = "NostrWifiAware"
         private const val securePassphrase = "awarebenchpass123"
         private const val tcpProtocol = 6
         private const val ioBufferSize = 256 * 1024
         private const val commandSet = "SET"
-        private const val commandTrack = "TRACK"
+        private const val commandPhoto = "PHOTO"
         private const val commandDone = "DONE"
         private const val commandAck = "ACK"
         private const val fetchMessagePrefix = "fetch:"
+        private const val albumLabel = "Local Instagram Feed"
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -101,47 +109,40 @@ class MainActivity : Activity() {
 
     private lateinit var wifiAwareManager: WifiAwareManager
     private lateinit var connectivityManager: ConnectivityManager
-    private lateinit var demoStore: HashtreeDemoStore
+    private lateinit var photoStore: PhotoDemoStore
 
     private lateinit var statusView: TextView
-    private lateinit var roleView: TextView
+    private lateinit var modeView: TextView
     private lateinit var transportView: TextView
     private lateinit var storageView: TextView
     private lateinit var localSummaryView: TextView
-    private lateinit var receivedSummaryView: TextView
-    private lateinit var heroArtView: TextView
-    private lateinit var heroEyebrowView: TextView
-    private lateinit var heroTitleView: TextView
-    private lateinit var heroMetaView: TextView
-    private lateinit var heroDetailView: TextView
-    private lateinit var heroActionButton: Button
-    private lateinit var searchInput: EditText
-    private lateinit var localTracksContainer: LinearLayout
-    private lateinit var receivedTracksContainer: LinearLayout
-    private lateinit var localEmptyView: TextView
-    private lateinit var receivedEmptyView: TextView
-    private lateinit var logView: TextView
-    private lateinit var seedSetAButton: Button
-    private lateinit var seedSetBButton: Button
+    private lateinit var nearbySummaryView: TextView
+    private lateinit var pageConfigButton: Button
+    private lateinit var pageFeedButton: Button
+    private lateinit var configPage: LinearLayout
+    private lateinit var feedPage: LinearLayout
+    private lateinit var takePhotoButton: Button
     private lateinit var startNearbyButton: Button
+    private lateinit var stopButton: Button
     private lateinit var fetchPeerButton: Button
     private lateinit var shareNowButton: Button
     private lateinit var clearDataButton: Button
-    private lateinit var stopButton: Button
     private lateinit var clearLogButton: Button
+    private lateinit var feedContainer: LinearLayout
+    private lateinit var feedEmptyView: TextView
+    private lateinit var logView: TextView
 
     private var role = Role.IDLE
     private var pendingRole: Role? = null
+    private var page = Page.CONFIG
     private var dataPathRole = DataPathRole.NONE
     private var transportStatus = "Idle"
-    private var searchQuery = ""
-    private var selectedTrackNhash: String? = null
-    private var playingTrackNhash: String? = null
 
-    private var localTracks: List<AudioTrackInfo> = emptyList()
-    private var receivedTracks: List<AudioTrackInfo> = emptyList()
+    private var localPhotos: List<PhotoItem> = emptyList()
+    private var receivedPhotos: List<PhotoItem> = emptyList()
 
-    private var mediaPlayer: MediaPlayer? = null
+    private var captureTempFile: File? = null
+    private var captureTempUri: Uri? = null
 
     private var awareSession: WifiAwareSession? = null
     private var publishSession: PublishDiscoverySession? = null
@@ -152,25 +153,24 @@ class MainActivity : Activity() {
     private var remotePeerInstance: String? = null
     private var helloSent = false
 
-    private var hostNetwork: Network? = null
-    private var clientNetwork: Network? = null
-    private var hostNetworkCallback: ConnectivityManager.NetworkCallback? = null
-    private var clientNetworkCallback: ConnectivityManager.NetworkCallback? = null
+    private var responderNetwork: Network? = null
+    private var initiatorNetwork: Network? = null
+    private var responderNetworkCallback: ConnectivityManager.NetworkCallback? = null
+    private var initiatorNetworkCallback: ConnectivityManager.NetworkCallback? = null
 
-    private var hostServerSocket: ServerSocket? = null
-    private var hostSocket: Socket? = null
-
-    private var clientSocket: Socket? = null
+    private var responderServerSocket: ServerSocket? = null
+    private var responderSocket: Socket? = null
+    private var initiatorSocket: Socket? = null
     private var connectedSocket: Socket? = null
     private var connectedInput: DataInputStream? = null
     private var connectedOutput: DataOutputStream? = null
-    private var clientPeerIpv6: Inet6Address? = null
-    private var clientPeerPort = 0
-    private val pendingTrackAcks = LinkedBlockingQueue<TrackAck>()
+    private var initiatorPeerIpv6: Inet6Address? = null
+    private var initiatorPeerPort = 0
+    private val pendingFileAcks = LinkedBlockingQueue<FileAck>()
     private val socketWriteLock = Any()
 
     @Volatile
-    private var clientSocketConnecting = false
+    private var initiatorSocketConnecting = false
 
     @Volatile
     private var transferInFlight = false
@@ -183,23 +183,23 @@ class MainActivity : Activity() {
 
         wifiAwareManager = getSystemService(WIFI_AWARE_SERVICE) as WifiAwareManager
         connectivityManager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
-        demoStore = HashtreeDemoStore(this)
-        reloadTrackState()
+        photoStore = PhotoDemoStore(this)
+        reloadPhotoState()
 
         setContentView(buildUi())
         setStatus("Idle")
-        updateRoleView()
+        updateModeView()
         updateTransportView()
-        updateTrackViews()
+        updateCounts()
+        updatePage()
+        updateFeed()
         updateControls()
-        appendLog(
-            "Audio-first nearby demo loaded. Seed a local set, attach two phones over Wi-Fi Aware, then fetch or share the set over the data path.",
-        )
+        appendLog("Local Instagram demo loaded. Take photos, keep them in hashtree-addressed storage, and share them with nearby peers over Wi-Fi Aware.")
     }
 
     override fun onDestroy() {
         stopAll("Activity destroyed")
-        releasePlayer()
+        cleanupCaptureTemp()
         ioExecutor.shutdownNow()
         super.onDestroy()
     }
@@ -210,7 +210,6 @@ class MainActivity : Activity() {
         grantResults: IntArray,
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-
         if (requestCode != permissionRequestCode) {
             return
         }
@@ -222,9 +221,57 @@ class MainActivity : Activity() {
             pendingRole = null
             role = Role.IDLE
             setStatus("Permission denied")
-            updateRoleView()
+            updateModeView()
             updateControls()
             appendLog("Missing runtime permission. Wi-Fi Aware cannot start.")
+        }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(
+        requestCode: Int,
+        resultCode: Int,
+        data: Intent?,
+    ) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != cameraRequestCode) {
+            return
+        }
+
+        val tempFile = captureTempFile
+        captureTempFile = null
+        captureTempUri?.let { revokeUriPermission(it, Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+        captureTempUri = null
+
+        if (tempFile == null) {
+            appendLog("Camera returned without a temp file.")
+            return
+        }
+
+        if (resultCode != RESULT_OK) {
+            tempFile.delete()
+            appendLog("Photo capture canceled.")
+            return
+        }
+
+        if (!tempFile.exists() || tempFile.length() == 0L) {
+            tempFile.delete()
+            appendLog("Camera capture produced no image.")
+            return
+        }
+
+        try {
+            val photo = photoStore.finalizeCapturedPhoto(tempFile)
+            reloadPhotoState()
+            updateCounts()
+            updateFeed()
+            updateControls()
+            page = Page.FEED
+            updatePage()
+            appendLog("Captured photo ${photo.id} nhash=${photo.nhash} size=${formatByteCount(photo.sizeBytes)}")
+        } catch (e: Exception) {
+            tempFile.delete()
+            appendLog("Failed to finalize captured photo: ${e.message}")
         }
     }
 
@@ -233,67 +280,36 @@ class MainActivity : Activity() {
         val sectionSpacing = dp(18)
 
         statusView = buildStatPill()
-        roleView = buildStatPill()
+        modeView = buildStatPill()
         transportView = buildStatPill()
         storageView = buildStatPill()
-        localSummaryView = TextView(this)
-        receivedSummaryView = TextView(this)
+        localSummaryView = buildBodyText()
+        nearbySummaryView = buildBodyText()
+        logView =
+            TextView(this).apply {
+                setTextColor(parseColor("#b7c4da"))
+                textSize = 12f
+                setTextIsSelectable(true)
+                setTypeface(Typeface.MONOSPACE)
+            }
+        feedContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        feedEmptyView = buildEmptyText()
 
-        heroArtView = TextView(this).apply {
-            gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
-            textSize = 22f
-            setTypeface(Typeface.MONOSPACE, Typeface.BOLD)
-            layoutParams = LinearLayout.LayoutParams(dp(92), dp(92))
+        pageConfigButton = buildMutedButton("Config").apply {
+            setOnClickListener {
+                page = Page.CONFIG
+                updatePage()
+            }
         }
-        heroEyebrowView = TextView(this).apply {
-            textSize = 12f
-            setTextColor(parseColor("#9fb2ce"))
-            setTypeface(Typeface.MONOSPACE, Typeface.BOLD)
-        }
-        heroTitleView = TextView(this).apply {
-            textSize = 28f
-            setTextColor(Color.WHITE)
-            setTypeface(Typeface.SANS_SERIF, Typeface.BOLD)
-        }
-        heroMetaView = TextView(this).apply {
-            textSize = 15f
-            setTextColor(parseColor("#d7def0"))
-        }
-        heroDetailView = TextView(this).apply {
-            textSize = 13f
-            setTextColor(parseColor("#9fb2ce"))
-        }
-        heroActionButton = buildAccentButton("Play", "#f59e0b", "#f97316").apply {
-            setOnClickListener { selectedDisplayTrack()?.let(::togglePlayback) }
+        pageFeedButton = buildMutedButton("Feed").apply {
+            setOnClickListener {
+                page = Page.FEED
+                updatePage()
+            }
         }
 
-        searchInput = EditText(this).apply {
-            hint = "Search title, artist, or album"
-            setHintTextColor(parseColor("#7f8aa3"))
-            setTextColor(Color.WHITE)
-            background = roundedFill(parseColor("#0d1422"), parseColor("#26344a"))
-            inputType = InputType.TYPE_CLASS_TEXT
-            setPadding(dp(16), dp(14), dp(16), dp(14))
-            addTextChangedListener(
-                object : TextWatcher {
-                    override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
-
-                    override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
-
-                    override fun afterTextChanged(s: Editable?) {
-                        searchQuery = s?.toString().orEmpty()
-                        updateTrackViews()
-                    }
-                },
-            )
-        }
-
-        seedSetAButton = buildAccentButton("Seed Set A", "#ff784f", "#ffd166").apply {
-            setOnClickListener { seedAudioSet(AudioSetId.SET_A) }
-        }
-        seedSetBButton = buildAccentButton("Seed Set B", "#ec4899", "#8b5cf6").apply {
-            setOnClickListener { seedAudioSet(AudioSetId.SET_B) }
+        takePhotoButton = buildAccentButton("Take Photo", "#f97316", "#fb7185").apply {
+            setOnClickListener { launchCameraCapture() }
         }
         startNearbyButton = buildMutedButton("Start Nearby").apply {
             setOnClickListener { ensurePermissionsAndStart(Role.PEER) }
@@ -304,8 +320,8 @@ class MainActivity : Activity() {
         fetchPeerButton = buildAccentButton("Fetch From Peer", "#38bdf8", "#06b6d4").apply {
             setOnClickListener { requestFetchFromPeer() }
         }
-        shareNowButton = buildMutedButton("Share Available Shelf").apply {
-            setOnClickListener { sendSeededSet("manual share") }
+        shareNowButton = buildMutedButton("Share Available Photos").apply {
+            setOnClickListener { sendAvailablePhotos("manual share") }
         }
         clearDataButton = buildMutedButton("Clear Demo Data").apply {
             setOnClickListener { clearDemoData() }
@@ -317,183 +333,56 @@ class MainActivity : Activity() {
             }
         }
 
-        localTracksContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        receivedTracksContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        localEmptyView = buildEmptyText()
-        receivedEmptyView = buildEmptyText()
-
-        logView = TextView(this).apply {
-            setTextColor(parseColor("#b7c4da"))
-            textSize = 12f
-            setTextIsSelectable(true)
-            setTypeface(Typeface.MONOSPACE)
-        }
-
         val headerCard =
             cardContainer().apply {
                 addView(
-                    LinearLayout(this@MainActivity).apply {
-                        orientation = LinearLayout.VERTICAL
-                        addView(
-                            TextView(this@MainActivity).apply {
-                                text = "Nearby Audio"
-                                textSize = 30f
-                                setTextColor(Color.WHITE)
-                                setTypeface(Typeface.SANS_SERIF, Typeface.BOLD)
-                            },
-                        )
-                        addView(
-                            TextView(this@MainActivity).apply {
-                                text =
-                                    "A Wi-Fi Aware music shelf for deterministic hashtree-addressed audio."
-                                textSize = 14f
-                                setTextColor(parseColor("#9fb2ce"))
-                                setPadding(0, dp(6), 0, dp(14))
-                            },
-                        )
-                        addView(statRow(statusView, roleView))
-                        addView(
-                            spacer(dp(10)),
-                        )
-                        addView(statRow(transportView, storageView))
-                    },
-                )
-            }
-
-        val heroCard =
-            cardContainer(
-                colors = intArrayOf(parseColor("#171d31"), parseColor("#0d1220")),
-                strokeColor = parseColor("#2f4568"),
-            ).apply {
-                addView(
-                    LinearLayout(this@MainActivity).apply {
-                        orientation = LinearLayout.HORIZONTAL
-                        gravity = Gravity.CENTER_VERTICAL
-                        addView(heroArtView)
-                        addView(
-                            LinearLayout(this@MainActivity).apply {
-                                orientation = LinearLayout.VERTICAL
-                                setPadding(dp(16), 0, 0, 0)
-                                layoutParams =
-                                    LinearLayout.LayoutParams(
-                                        0,
-                                        ViewGroup.LayoutParams.WRAP_CONTENT,
-                                        1f,
-                                    )
-                                addView(heroEyebrowView)
-                                addView(
-                                    heroTitleView.apply {
-                                        setPadding(0, dp(6), 0, 0)
-                                    },
-                                )
-                                addView(
-                                    heroMetaView.apply {
-                                        setPadding(0, dp(6), 0, 0)
-                                    },
-                                )
-                                addView(
-                                    heroDetailView.apply {
-                                        setPadding(0, dp(8), 0, 0)
-                                    },
-                                )
-                            },
-                        )
-                    },
-                )
-                addView(spacer(dp(16)))
-                addView(heroActionButton)
-            }
-
-        val actionCard =
-            cardContainer().apply {
-                addView(
                     TextView(this@MainActivity).apply {
-                        text = "Transport Controls"
-                        textSize = 18f
+                        text = "Local Instagram"
+                        textSize = 30f
                         setTextColor(Color.WHITE)
                         setTypeface(Typeface.SANS_SERIF, Typeface.BOLD)
                     },
                 )
                 addView(
                     TextView(this@MainActivity).apply {
-                        text =
-                            "Seed one or both sets on either phone, then tap Start Nearby on both. The app picks who initiates the Wi-Fi Aware data path underneath, so you can fetch or share without choosing host/client roles."
+                        text = "Take photos, store them in hashtree-addressed local storage, then move them directly between phones over Wi-Fi Aware."
+                        textSize = 14f
+                        setTextColor(parseColor("#9fb2ce"))
+                        setPadding(0, dp(6), 0, dp(14))
+                    },
+                )
+                addView(statRow(statusView, modeView))
+                addView(spacer(dp(10)))
+                addView(statRow(transportView, storageView))
+                addView(spacer(dp(14)))
+                addView(buttonRow(pageConfigButton, pageFeedButton))
+            }
+
+        configPage =
+            cardContainer().apply {
+                addView(sectionTitle("Config"))
+                addView(
+                    TextView(this@MainActivity).apply {
+                        text = "Use this page to capture photos, connect nearby peers, fetch their feed, and inspect the transport log."
                         textSize = 13f
                         setTextColor(parseColor("#9fb2ce"))
                         setPadding(0, dp(6), 0, dp(14))
                     },
                 )
                 addView(localSummaryView)
-                addView(receivedSummaryView.apply { setPadding(0, dp(6), 0, dp(14)) })
-                addView(buttonRow(seedSetAButton, seedSetBButton))
-                addView(spacer(dp(10)))
-                addView(buttonRow(startNearbyButton, stopButton))
+                addView(nearbySummaryView.apply { setPadding(0, dp(8), 0, dp(14)) })
+                addView(buttonRow(takePhotoButton, startNearbyButton))
                 addView(spacer(dp(10)))
                 addView(buttonRow(fetchPeerButton, shareNowButton))
                 addView(spacer(dp(10)))
-                addView(buttonRow(clearDataButton, clearLogButton))
-            }
-
-        val searchCard =
-            cardContainer().apply {
-                addView(
-                    TextView(this@MainActivity).apply {
-                        text = "Search"
-                        textSize = 18f
-                        setTextColor(Color.WHITE)
-                        setTypeface(Typeface.SANS_SERIF, Typeface.BOLD)
-                    },
-                )
-                addView(
-                    TextView(this@MainActivity).apply {
-                        text = "Filter both local and fetched shelves instantly."
-                        textSize = 13f
-                        setTextColor(parseColor("#9fb2ce"))
-                        setPadding(0, dp(6), 0, dp(12))
-                    },
-                )
-                addView(searchInput)
-            }
-
-        val localSection =
-            cardContainer().apply {
-                addView(sectionTitle("Seeded On This Phone"))
-                addView(
-                    TextView(this@MainActivity).apply {
-                        text = "This phone can share anything it has seeded or already fetched from another nearby peer."
-                        textSize = 13f
-                        setTextColor(parseColor("#9fb2ce"))
-                        setPadding(0, dp(6), 0, dp(12))
-                    },
-                )
-                addView(localTracksContainer)
-                addView(localEmptyView)
-            }
-
-        val receivedSection =
-            cardContainer().apply {
-                addView(sectionTitle("Fetched Nearby"))
-                addView(
-                    TextView(this@MainActivity).apply {
-                        text = "Every imported file is recomputed and accepted only if the hashtree nhash matches."
-                        textSize = 13f
-                        setTextColor(parseColor("#9fb2ce"))
-                        setPadding(0, dp(6), 0, dp(12))
-                    },
-                )
-                addView(receivedTracksContainer)
-                addView(receivedEmptyView)
-            }
-
-        val logSection =
-            cardContainer(
-                colors = intArrayOf(parseColor("#0a0f18"), parseColor("#05080d")),
-                strokeColor = parseColor("#233047"),
-            ).apply {
+                addView(buttonRow(stopButton, clearDataButton))
+                addView(spacer(dp(10)))
+                addView(buttonRow(clearLogButton))
+                addView(spacer(dp(18)))
                 addView(sectionTitle("Transport Log"))
                 addView(
                     TextView(this@MainActivity).apply {
-                        text = "This is the ground truth when you want to verify the transfer really crossed the Wi-Fi Aware data path."
+                        text = "This is the proof that photo bytes crossed the Wi-Fi Aware data path and were re-verified by nhash."
                         textSize = 13f
                         setTextColor(parseColor("#9fb2ce"))
                         setPadding(0, dp(6), 0, dp(12))
@@ -502,23 +391,30 @@ class MainActivity : Activity() {
                 addView(logView)
             }
 
+        feedPage =
+            cardContainer().apply {
+                addView(sectionTitle("Photo Feed"))
+                addView(
+                    TextView(this@MainActivity).apply {
+                        text = "Newest photos first. Local photos and nearby photos are shown together in one feed."
+                        textSize = 13f
+                        setTextColor(parseColor("#9fb2ce"))
+                        setPadding(0, dp(6), 0, dp(12))
+                    },
+                )
+                addView(feedContainer)
+                addView(feedEmptyView)
+            }
+
         val content =
             LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(contentPadding, contentPadding, contentPadding, contentPadding)
                 addView(headerCard)
                 addView(spacer(sectionSpacing))
-                addView(heroCard)
+                addView(configPage)
                 addView(spacer(sectionSpacing))
-                addView(actionCard)
-                addView(spacer(sectionSpacing))
-                addView(searchCard)
-                addView(spacer(sectionSpacing))
-                addView(localSection)
-                addView(spacer(sectionSpacing))
-                addView(receivedSection)
-                addView(spacer(sectionSpacing))
-                addView(logSection)
+                addView(feedPage)
                 addView(spacer(dp(24)))
             }
 
@@ -538,43 +434,53 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun seedAudioSet(setId: AudioSetId) {
-        if (role != Role.IDLE) {
-            appendLog("Stop Wi-Fi Aware before reseeding audio.")
+    private fun launchCameraCapture() {
+        if (transferInFlight) {
+            appendLog("Wait for the current transfer to finish before taking another photo.")
             return
         }
 
         try {
-            localTracks = demoStore.seedLocalSet(setId)
-            selectedTrackNhash =
-                localTracks.firstOrNull { it.setLabel == setId.label }?.nhash
-                    ?: localTracks.firstOrNull()?.nhash
-            updateTrackViews()
-            updateControls()
-            appendLog("Added ${setId.label} to the local shelf. Local shelf now has ${localTracks.size} tracks.")
-            AudioDemoCatalog.tracksForSet(setId).forEach { spec ->
-                val track = localTracks.firstOrNull { it.id == spec.id } ?: return@forEach
-                appendLog(
-                    "Seeded ${track.id} (${track.title}) nhash=${track.nhash} size=${formatByteCount(track.sizeBytes)}",
-                )
+            val tempFile = photoStore.createCaptureTempFile()
+            val uri = FileProvider.getUriForFile(this, "${packageName}.fileprovider", tempFile)
+            val intent =
+                Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
+                    putExtra(MediaStore.EXTRA_OUTPUT, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                }
+
+            if (intent.resolveActivity(packageManager) == null) {
+                tempFile.delete()
+                appendLog("No camera app is available on this device.")
+                return
             }
+
+            captureTempFile = tempFile
+            captureTempUri = uri
+            startActivityForResult(intent, cameraRequestCode)
         } catch (e: Exception) {
-            appendLog("Failed to seed ${setId.label}: ${e.message}")
+            cleanupCaptureTemp()
+            appendLog("Failed to launch camera: ${e.message}")
         }
+    }
+
+    private fun cleanupCaptureTemp() {
+        captureTempFile?.delete()
+        captureTempFile = null
+        captureTempUri = null
     }
 
     private fun clearDemoData() {
         if (role != Role.IDLE) {
             stopAll("Stopped for demo data clear")
         }
-
-        releasePlayer()
-        demoStore.clearAll()
-        selectedTrackNhash = null
-        reloadTrackState()
-        updateTrackViews()
+        cleanupCaptureTemp()
+        photoStore.clearAll()
+        reloadPhotoState()
+        updateCounts()
+        updateFeed()
         updateControls()
-        appendLog("Cleared all demo audio data.")
+        appendLog("Cleared all local and nearby photos.")
     }
 
     private fun ensurePermissionsAndStart(selectedRole: Role) {
@@ -623,9 +529,7 @@ class MainActivity : Activity() {
             pendingRole = null
             setStatus("Unavailable")
             setTransportStatus("Wi-Fi Aware unavailable")
-            appendLog(
-                "Wi-Fi Aware is unavailable. Check Wi-Fi, location services, or hotspot/tethering state.",
-            )
+            appendLog("Wi-Fi Aware is unavailable. Check Wi-Fi, location services, or hotspot/tethering state.")
             return
         }
 
@@ -638,9 +542,9 @@ class MainActivity : Activity() {
         subscribePeerHandle = null
         remotePeerInstance = null
         helloSent = false
-        pendingTrackAcks.clear()
+        pendingFileAcks.clear()
         transferInFlight = false
-        updateRoleView()
+        updateModeView()
         updateControls()
         setStatus("Attaching")
         setTransportStatus("Attaching to Wi-Fi Aware")
@@ -657,18 +561,13 @@ class MainActivity : Activity() {
                     awareSession = session
                     setStatus("Running")
                     appendLog("Attach succeeded.")
-                    when (role) {
-                        Role.PEER -> {
-                            startPublishPeer(session)
-                            startSubscribePeer(session)
-                        }
-                        Role.IDLE -> session.close()
-                    }
+                    startPublishPeer(session)
+                    startSubscribePeer(session)
                 }
 
                 override fun onAttachFailed() {
                     role = Role.IDLE
-                    updateRoleView()
+                    updateModeView()
                     updateControls()
                     setStatus("Attach failed")
                     setTransportStatus("Attach failed")
@@ -715,7 +614,7 @@ class MainActivity : Activity() {
                     if (text.startsWith(fetchMessagePrefix)) {
                         rememberPeer(peerHandle, remotePeerInstance, isPublishHandle = true)
                         pendingRemoteFetchRequest = true
-                        appendLog("Nearby peer requested this phone's seeded shelf.")
+                        appendLog("Nearby peer requested this phone's available feed.")
                         maybeStartPendingFetch()
                     }
                 }
@@ -769,7 +668,7 @@ class MainActivity : Activity() {
                     }
 
                     if (discoveredInstance == null) {
-                        appendLog("Discovered ${peerLabel(peerHandle)}, but it did not advertise an app instance. Waiting for an incoming hello.")
+                        appendLog("Discovered ${peerLabel(peerHandle)}, but it did not advertise an app instance.")
                         return
                     }
 
@@ -790,9 +689,9 @@ class MainActivity : Activity() {
                         handleInitiatorReady(peerHandle)
                     }
                     if (text.startsWith(fetchMessagePrefix)) {
-                        pendingRemoteFetchRequest = true
                         rememberPeer(peerHandle, remotePeerInstance, isPublishHandle = false)
-                        appendLog("Nearby peer requested this phone's seeded shelf.")
+                        pendingRemoteFetchRequest = true
+                        appendLog("Nearby peer requested this phone's available feed.")
                         maybeStartPendingFetch()
                     }
                 }
@@ -835,21 +734,20 @@ class MainActivity : Activity() {
             return null
         }
         val text = serviceSpecificInfo.toString(Charsets.UTF_8)
-        if (!text.startsWith("peer:")) {
-            return null
+        return if (text.startsWith("peer:")) {
+            text.removePrefix("peer:").takeIf { it.isNotBlank() }
+        } else {
+            null
         }
-        return text.removePrefix("peer:").takeIf { it.isNotBlank() }
     }
 
-    private fun shouldInitiateDataPath(remoteInstance: String): Boolean {
-        return appInstance < remoteInstance
-    }
+    private fun shouldInitiateDataPath(remoteInstance: String): Boolean = appInstance < remoteInstance
 
     private fun maybeSendHello(
         peerHandle: PeerHandle,
         remoteInstance: String,
     ) {
-        if (helloSent || hostNetworkCallback != null || clientNetworkCallback != null || connectedSocket != null || clientSocketConnecting) {
+        if (helloSent || responderNetworkCallback != null || initiatorNetworkCallback != null || connectedSocket != null || initiatorSocketConnecting) {
             return
         }
 
@@ -857,12 +755,7 @@ class MainActivity : Activity() {
         dataPathRole = DataPathRole.INITIATOR
         setTransportStatus("Initiating Wi-Fi Aware data path")
         appendLog("Tie-break selected this phone to initiate the Wi-Fi Aware data path with $remoteInstance.")
-        sendMessage(
-            session = subscribeSession,
-            peerHandle = peerHandle,
-            payload = "hello:$appInstance",
-            reason = "peer hello",
-        )
+        sendMessage(subscribeSession, peerHandle, "hello:$appInstance", "peer hello")
     }
 
     private fun handleResponderHello(
@@ -870,7 +763,7 @@ class MainActivity : Activity() {
         remoteInstance: String?,
     ) {
         rememberPeer(peerHandle, remoteInstance, isPublishHandle = true)
-        if (hostNetworkCallback != null) {
+        if (responderNetworkCallback != null) {
             appendLog("Responder already requested a Wi-Fi Aware data path. Ignoring duplicate hello.")
             return
         }
@@ -886,9 +779,9 @@ class MainActivity : Activity() {
         }
 
         try {
-            closeHostSockets()
+            closeResponderSockets()
             val serverSocket = ServerSocket(0)
-            hostServerSocket = serverSocket
+            responderServerSocket = serverSocket
             appendLog("Responder server socket listening on port ${serverSocket.localPort}")
             ioExecutor.execute { acceptResponderConnections(serverSocket) }
 
@@ -908,43 +801,37 @@ class MainActivity : Activity() {
             val callback =
                 object : ConnectivityManager.NetworkCallback() {
                     override fun onAvailable(network: Network) {
-                        hostNetwork = network
+                        responderNetwork = network
                         setTransportStatus("Wi-Fi Aware data path available")
                         appendLog("Responder Wi-Fi Aware data path available.")
                     }
 
                     override fun onLost(network: Network) {
-                        if (network == hostNetwork) {
+                        if (network == responderNetwork) {
                             appendLog("Responder data path lost.")
                             setTransportStatus("Wi-Fi Aware data path lost")
-                            hostNetwork = null
-                            clearHostNetworkRequest()
-                            closeHostSockets()
+                            responderNetwork = null
+                            clearResponderNetworkRequest()
+                            closeResponderSockets()
                         }
                     }
 
                     override fun onUnavailable() {
                         appendLog("Responder data path unavailable.")
                         setTransportStatus("Wi-Fi Aware data path unavailable")
-                        clearHostNetworkRequest()
-                        closeHostSockets()
+                        clearResponderNetworkRequest()
+                        closeResponderSockets()
                     }
                 }
 
-            hostNetworkCallback = callback
+            responderNetworkCallback = callback
             connectivityManager.requestNetwork(request, callback)
-
-            sendMessage(
-                session = publishSession,
-                peerHandle = peerHandle,
-                payload = "ready:$appInstance",
-                reason = "responder requested data path",
-            )
+            sendMessage(publishSession, peerHandle, "ready:$appInstance", "responder requested data path")
         } catch (e: IOException) {
             appendLog("Responder setup failed: ${e.message}")
             setTransportStatus("Wi-Fi Aware setup failed")
-            clearHostNetworkRequest()
-            closeHostSockets()
+            clearResponderNetworkRequest()
+            closeResponderSockets()
         }
     }
 
@@ -952,8 +839,8 @@ class MainActivity : Activity() {
         while (!serverSocket.isClosed && role == Role.PEER) {
             try {
                 val socket = serverSocket.accept()
-                hostSocket?.close()
-                hostSocket = socket
+                responderSocket?.close()
+                responderSocket = socket
                 bindConnectedSocket(socket, "Responder")
             } catch (e: IOException) {
                 if (!serverSocket.isClosed && role == Role.PEER) {
@@ -967,7 +854,7 @@ class MainActivity : Activity() {
 
     private fun bindConnectedSocket(
         socket: Socket,
-        connectionLabel: String,
+        label: String,
     ) {
         synchronized(socketWriteLock) {
             safeClose(connectedInput)
@@ -980,11 +867,11 @@ class MainActivity : Activity() {
             connectedSocket = socket
             connectedInput = input
             connectedOutput = output
-            pendingTrackAcks.clear()
+            pendingFileAcks.clear()
             setTransportStatus("Wi-Fi Aware peer socket connected")
-            appendLog("$connectionLabel Wi-Fi Aware TCP socket connected.")
+            appendLog("$label Wi-Fi Aware TCP socket connected.")
             updateControls()
-            ioExecutor.execute { readConnectedSocket(socket, input, output, connectionLabel) }
+            ioExecutor.execute { readConnectedSocket(socket, input, output, label) }
         }
         maybeStartPendingFetch()
     }
@@ -993,49 +880,46 @@ class MainActivity : Activity() {
         socket: Socket,
         input: DataInputStream,
         output: DataOutputStream,
-        connectionLabel: String,
+        label: String,
     ) {
         try {
-            var activeSetLabel = "Unknown Set"
-
+            var activeLabel = albumLabel
             while (!socket.isClosed && role == Role.PEER) {
                 val command =
                     try {
                         input.readUTF()
                     } catch (_: EOFException) {
-                        appendLog("Peer audio stream closed.")
+                        appendLog("Peer photo stream closed.")
                         break
                     }
 
                 when (command) {
                     commandSet -> {
-                        activeSetLabel = input.readUTF()
-                        val trackCount = input.readInt()
-                        appendLog("Receiving Wi-Fi Aware audio $activeSetLabel with $trackCount tracks.")
+                        activeLabel = input.readUTF()
+                        val count = input.readInt()
+                        appendLog("Receiving Wi-Fi Aware photo feed $activeLabel with $count photos.")
                     }
 
-                    commandTrack -> {
-                        val trackId = input.readUTF()
-                        val trackSetLabel = input.readUTF()
+                    commandPhoto -> {
+                        val photoId = input.readUTF()
+                        val sourceLabel = input.readUTF()
+                        val createdAtMs = input.readLong()
                         val announcedNhash = input.readUTF()
                         val expectedBytes = input.readLong()
                         if (expectedBytes <= 0L) {
-                            appendLog("Received invalid track size $expectedBytes for $trackId.")
+                            appendLog("Received invalid photo size $expectedBytes for $photoId.")
                             break
                         }
 
-                        appendLog(
-                            "Receiving track $trackId from $trackSetLabel inside $activeSetLabel nhash=$announcedNhash (${formatByteCount(expectedBytes)}) over Wi-Fi Aware",
-                        )
-                        val tempFile = demoStore.createIncomingTempFile(trackId)
+                        appendLog("Receiving photo $photoId from $sourceLabel inside $activeLabel nhash=$announcedNhash (${formatByteCount(expectedBytes)}) over Wi-Fi Aware")
+                        val tempFile = photoStore.createIncomingTempFile(photoId)
                         var remaining = expectedBytes
-
                         FileOutputStream(tempFile).use { fileOutput ->
                             while (remaining > 0) {
                                 val chunk = min(ioBuffer.size.toLong(), remaining).toInt()
                                 val read = input.read(ioBuffer, 0, chunk)
                                 if (read < 0) {
-                                    throw EOFException("Peer disconnected mid-track transfer.")
+                                    throw EOFException("Peer disconnected mid-photo transfer.")
                                 }
                                 fileOutput.write(ioBuffer, 0, read)
                                 remaining -= read.toLong()
@@ -1044,29 +928,28 @@ class MainActivity : Activity() {
 
                         val result =
                             try {
-                                demoStore.verifyAndStoreReceivedTrack(
+                                photoStore.verifyAndStoreReceivedPhoto(
                                     tempFile = tempFile,
-                                    trackId = trackId,
+                                    photoId = photoId,
+                                    createdAtMs = createdAtMs,
                                     announcedNhash = announcedNhash,
-                                    setLabel = trackSetLabel,
+                                    sourceLabel = sourceLabel,
                                 )
                             } catch (e: Exception) {
                                 tempFile.delete()
-                                StoredTrackResult(
+                                StoredPhotoResult(
                                     success = false,
                                     actualNhash = null,
-                                    track = null,
+                                    photo = null,
                                     alreadyPresent = false,
-                                    message = "Failed to verify received track $trackId: ${e.message}",
+                                    message = "Failed to verify received photo $photoId: ${e.message}",
                                 )
                             }
 
                         if (result.success) {
-                            receivedTracks = demoStore.receivedTracks()
-                            if (selectedTrackNhash == null) {
-                                selectedTrackNhash = result.track?.nhash
-                            }
-                            updateTrackViews()
+                            receivedPhotos = photoStore.receivedPhotos()
+                            updateCounts()
+                            updateFeed()
                         }
 
                         appendLog(result.message)
@@ -1081,14 +964,14 @@ class MainActivity : Activity() {
                     }
 
                     commandDone -> {
-                        val setLabel = input.readUTF()
-                        val trackCount = input.readInt()
-                        appendLog("Finished receiving Wi-Fi Aware audio $setLabel ($trackCount tracks).")
+                        val labelDone = input.readUTF()
+                        val count = input.readInt()
+                        appendLog("Finished receiving Wi-Fi Aware photo feed $labelDone ($count photos).")
                     }
 
                     commandAck -> {
-                        pendingTrackAcks.offer(
-                            TrackAck(
+                        pendingFileAcks.offer(
+                            FileAck(
                                 success = input.readBoolean(),
                                 actualNhash = input.readUTF().ifBlank { null },
                                 alreadyPresent = input.readBoolean(),
@@ -1105,29 +988,29 @@ class MainActivity : Activity() {
             }
         } catch (e: IOException) {
             if (role == Role.PEER) {
-                appendLog("$connectionLabel socket error: ${e.message}")
+                appendLog("$label socket error: ${e.message}")
                 setTransportStatus("Wi-Fi Aware socket error")
             }
         } finally {
             safeClose(socket)
-            if (hostSocket === socket) {
-                hostSocket = null
+            if (responderSocket === socket) {
+                responderSocket = null
             }
-            if (clientSocket === socket) {
-                clientSocket = null
+            if (initiatorSocket === socket) {
+                initiatorSocket = null
             }
             if (connectedSocket === socket) {
                 connectedSocket = null
                 connectedInput = null
                 connectedOutput = null
             }
-            appendLog("$connectionLabel TCP socket closed.")
+            appendLog("$label TCP socket closed.")
             updateControls()
         }
     }
 
     private fun handleInitiatorReady(peerHandle: PeerHandle) {
-        if (clientNetworkCallback != null || clientSocket != null) {
+        if (initiatorNetworkCallback != null || initiatorSocket != null) {
             appendLog("Initiator already requested a data path.")
             return
         }
@@ -1155,68 +1038,66 @@ class MainActivity : Activity() {
         val callback =
             object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: Network) {
-                    clientNetwork = network
+                    initiatorNetwork = network
                     setTransportStatus("Wi-Fi Aware data path available")
                     appendLog("Initiator Wi-Fi Aware data path available.")
-                    maybeConnectClientSocket()
+                    maybeConnectInitiatorSocket()
                 }
 
                 override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
                     val awareInfo = networkCapabilities.transportInfo as? WifiAwareNetworkInfo ?: return
-                    clientPeerIpv6 = awareInfo.peerIpv6Addr
-                    clientPeerPort = awareInfo.port
-                    appendLog(
-                        "Initiator learned responder endpoint port=${awareInfo.port} ipv6=${awareInfo.peerIpv6Addr?.hostAddress ?: "null"}",
-                    )
-                    maybeConnectClientSocket()
+                    initiatorPeerIpv6 = awareInfo.peerIpv6Addr
+                    initiatorPeerPort = awareInfo.port
+                    appendLog("Initiator learned responder endpoint port=${awareInfo.port} ipv6=${awareInfo.peerIpv6Addr?.hostAddress ?: "null"}")
+                    maybeConnectInitiatorSocket()
                 }
 
                 override fun onLost(network: Network) {
-                    if (network == clientNetwork) {
+                    if (network == initiatorNetwork) {
                         appendLog("Initiator data path lost.")
                         setTransportStatus("Wi-Fi Aware data path lost")
-                        clientNetwork = null
-                        clientPeerIpv6 = null
-                        clientPeerPort = 0
-                        clearClientNetworkRequest()
-                        closeClientSocket()
+                        initiatorNetwork = null
+                        initiatorPeerIpv6 = null
+                        initiatorPeerPort = 0
+                        clearInitiatorNetworkRequest()
+                        closeInitiatorSocket()
                     }
                 }
 
                 override fun onUnavailable() {
                     appendLog("Initiator data path unavailable.")
                     setTransportStatus("Wi-Fi Aware data path unavailable")
-                    clearClientNetworkRequest()
-                    closeClientSocket()
+                    clearInitiatorNetworkRequest()
+                    closeInitiatorSocket()
                 }
             }
 
-        clientNetworkCallback = callback
+        initiatorNetworkCallback = callback
         connectivityManager.requestNetwork(request, callback)
     }
 
-    private fun maybeConnectClientSocket() {
-        val network = clientNetwork ?: return
-        val peerIpv6 = clientPeerIpv6 ?: return
-        val peerPort = clientPeerPort
-        if (peerPort <= 0 || clientSocket != null || clientSocketConnecting) {
+    private fun maybeConnectInitiatorSocket() {
+        val network = initiatorNetwork ?: return
+        val peerIpv6 = initiatorPeerIpv6 ?: return
+        val peerPort = initiatorPeerPort
+        if (peerPort <= 0 || initiatorSocket != null || initiatorSocketConnecting) {
             return
         }
-        clientSocketConnecting = true
+        initiatorSocketConnecting = true
         updateControls()
 
         ioExecutor.execute {
             try {
                 appendLog("Initiator opening Wi-Fi Aware TCP socket to [${peerIpv6.hostAddress}]:$peerPort")
                 val socket = network.socketFactory.createSocket(peerIpv6, peerPort)
-                clientSocket = socket
-                clientSocketConnecting = false
+                initiatorSocket = socket
+                initiatorSocketConnecting = false
                 bindConnectedSocket(socket, "Initiator")
             } catch (e: IOException) {
-                clientSocketConnecting = false
+                initiatorSocketConnecting = false
                 appendLog("Initiator socket connect failed: ${e.message}")
                 setTransportStatus("Wi-Fi Aware socket connect failed")
-                closeClientSocket()
+                closeInitiatorSocket()
             }
         }
     }
@@ -1226,49 +1107,40 @@ class MainActivity : Activity() {
             appendLog("Start Nearby first.")
             return
         }
-
         if (connectedSocket == null) {
             appendLog("Wait for the Wi-Fi Aware peer socket before requesting a fetch.")
             return
         }
-
-        if (!sendMessageToActivePeer("$fetchMessagePrefix$appInstance", "peer requested seeded set")) {
+        if (!sendMessageToActivePeer("$fetchMessagePrefix$appInstance", "peer requested photo feed")) {
             appendLog("No nearby peer discovered yet.")
             return
         }
-        appendLog("Requested the nearby peer's available shelf.")
+        appendLog("Requested the nearby peer's available photo feed.")
     }
 
     private fun maybeStartPendingFetch() {
-        if (
-            role == Role.PEER &&
-            pendingRemoteFetchRequest &&
-            connectedSocket != null &&
-            !clientSocketConnecting &&
-            !transferInFlight
-        ) {
+        if (role == Role.PEER && pendingRemoteFetchRequest && connectedSocket != null && !initiatorSocketConnecting && !transferInFlight) {
             pendingRemoteFetchRequest = false
-            sendSeededSet("nearby fetch request")
+            sendAvailablePhotos("nearby fetch request")
         }
     }
 
-    private fun sendSeededSet(trigger: String) {
+    private fun sendAvailablePhotos(trigger: String) {
         if (role != Role.PEER) {
             appendLog("Start Nearby first.")
             return
         }
-
         if (transferInFlight) {
-            appendLog("A set transfer is already in flight.")
+            appendLog("A photo transfer is already in flight.")
             return
         }
 
-        localTracks = demoStore.currentLocalTracks()
-        receivedTracks = demoStore.receivedTracks()
-        val availableTracks = shareableTracks()
-        if (availableTracks.isEmpty()) {
-            appendLog("Seed Set A or Set B on this phone first, or fetch tracks from a nearby peer.")
-            updateTrackViews()
+        reloadPhotoState()
+        val availablePhotos = shareablePhotos()
+        if (availablePhotos.isEmpty()) {
+            appendLog("Take a photo first, or fetch photos from a nearby peer.")
+            updateCounts()
+            updateFeed()
             return
         }
 
@@ -1278,33 +1150,31 @@ class MainActivity : Activity() {
             return
         }
 
-        val setLabel = shelfLabel(availableTracks)
         transferInFlight = true
-        pendingTrackAcks.clear()
+        pendingFileAcks.clear()
         updateControls()
 
         ioExecutor.execute {
             try {
-                appendLog("Sending Wi-Fi Aware audio $setLabel with ${availableTracks.size} tracks ($trigger).")
+                appendLog("Sending Wi-Fi Aware photo feed with ${availablePhotos.size} photos ($trigger).")
                 synchronized(socketWriteLock) {
                     output.writeUTF(commandSet)
-                    output.writeUTF(setLabel)
-                    output.writeInt(availableTracks.size)
+                    output.writeUTF(albumLabel)
+                    output.writeInt(availablePhotos.size)
                     output.flush()
                 }
 
-                for (track in availableTracks.sortedBy { it.id }) {
-                    appendLog(
-                        "Sending ${track.id} (${track.title}) nhash=${track.nhash} size=${formatByteCount(track.sizeBytes)} over Wi-Fi Aware",
-                    )
+                for (photo in availablePhotos.sortedByDescending { it.createdAtMs }) {
+                    appendLog("Sending ${photo.id} nhash=${photo.nhash} size=${formatByteCount(photo.sizeBytes)} over Wi-Fi Aware")
                     synchronized(socketWriteLock) {
-                        output.writeUTF(commandTrack)
-                        output.writeUTF(track.id)
-                        output.writeUTF(track.setLabel)
-                        output.writeUTF(track.nhash)
-                        output.writeLong(track.sizeBytes)
+                        output.writeUTF(commandPhoto)
+                        output.writeUTF(photo.id)
+                        output.writeUTF(photo.sourceLabel)
+                        output.writeLong(photo.createdAtMs)
+                        output.writeUTF(photo.nhash)
+                        output.writeLong(photo.sizeBytes)
 
-                        FileInputStream(track.file).use { fileInput ->
+                        FileInputStream(photo.file).use { fileInput ->
                             while (true) {
                                 val read = fileInput.read(ioBuffer)
                                 if (read < 0) {
@@ -1317,28 +1187,26 @@ class MainActivity : Activity() {
                     }
 
                     val ack =
-                        pendingTrackAcks.poll(20, TimeUnit.SECONDS)
-                            ?: throw IOException("Timed out waiting for peer ACK for ${track.id}.")
-                    appendLog(
-                        "Peer reply for ${track.id}: success=${ack.success} actualNhash=${ack.actualNhash ?: "n/a"} alreadyPresent=${ack.alreadyPresent}",
-                    )
+                        pendingFileAcks.poll(20, TimeUnit.SECONDS)
+                            ?: throw IOException("Timed out waiting for peer ACK for ${photo.id}.")
+                    appendLog("Peer reply for ${photo.id}: success=${ack.success} actualNhash=${ack.actualNhash ?: "n/a"} alreadyPresent=${ack.alreadyPresent}")
                     appendLog(ack.message)
                     if (!ack.success) {
-                        appendLog("Stopping set transfer because the peer rejected ${track.id}.")
+                        appendLog("Stopping photo transfer because the peer rejected ${photo.id}.")
                         break
                     }
                 }
 
                 synchronized(socketWriteLock) {
                     output.writeUTF(commandDone)
-                    output.writeUTF(setLabel)
-                    output.writeInt(availableTracks.size)
+                    output.writeUTF(albumLabel)
+                    output.writeInt(availablePhotos.size)
                     output.flush()
                 }
-                appendLog("Finished sending Wi-Fi Aware audio $setLabel.")
+                appendLog("Finished sending Wi-Fi Aware photo feed.")
             } catch (e: IOException) {
-                appendLog("Set transfer failed: ${e.message}")
-                setTransportStatus("Set transfer failed")
+                appendLog("Photo transfer failed: ${e.message}")
+                setTransportStatus("Photo transfer failed")
                 closeConnectedSocket()
             } finally {
                 transferInFlight = false
@@ -1377,7 +1245,6 @@ class MainActivity : Activity() {
             appendLog("Cannot send '$payload': discovery session is null.")
             return
         }
-
         val messageId = nextMessageId++
         appendLog("Sending '$payload' to ${peerLabel(peerHandle)} ($reason)")
         session.sendMessage(peerHandle, messageId, payload.toByteArray(Charsets.UTF_8))
@@ -1387,13 +1254,13 @@ class MainActivity : Activity() {
         pendingRole = null
         transferInFlight = false
         pendingRemoteFetchRequest = false
-        pendingTrackAcks.clear()
+        pendingFileAcks.clear()
 
-        clearClientNetworkRequest()
-        clearHostNetworkRequest()
+        clearInitiatorNetworkRequest()
+        clearResponderNetworkRequest()
         closeConnectedSocket()
-        closeClientSocket()
-        closeHostSockets()
+        closeInitiatorSocket()
+        closeResponderSockets()
 
         publishSession?.close()
         subscribeSession?.close()
@@ -1407,15 +1274,15 @@ class MainActivity : Activity() {
         remotePeerInstance = null
         helloSent = false
         dataPathRole = DataPathRole.NONE
-        hostNetwork = null
-        clientNetwork = null
-        clientPeerIpv6 = null
-        clientPeerPort = 0
+        responderNetwork = null
+        initiatorNetwork = null
+        initiatorPeerIpv6 = null
+        initiatorPeerPort = 0
         nextMessageId = 1
 
         if (role != Role.IDLE) {
             role = Role.IDLE
-            updateRoleView()
+            updateModeView()
             updateControls()
             setStatus("Stopped")
             setTransportStatus("Idle")
@@ -1423,37 +1290,37 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun clearHostNetworkRequest() {
-        hostNetworkCallback?.let { callback ->
+    private fun clearResponderNetworkRequest() {
+        responderNetworkCallback?.let { callback ->
             try {
                 connectivityManager.unregisterNetworkCallback(callback)
             } catch (_: Exception) {
             }
         }
-        hostNetworkCallback = null
+        responderNetworkCallback = null
     }
 
-    private fun clearClientNetworkRequest() {
-        clientNetworkCallback?.let { callback ->
+    private fun clearInitiatorNetworkRequest() {
+        initiatorNetworkCallback?.let { callback ->
             try {
                 connectivityManager.unregisterNetworkCallback(callback)
             } catch (_: Exception) {
             }
         }
-        clientNetworkCallback = null
+        initiatorNetworkCallback = null
     }
 
-    private fun closeHostSockets() {
-        safeClose(hostSocket)
-        safeClose(hostServerSocket)
-        hostSocket = null
-        hostServerSocket = null
+    private fun closeResponderSockets() {
+        safeClose(responderSocket)
+        safeClose(responderServerSocket)
+        responderSocket = null
+        responderServerSocket = null
     }
 
-    private fun closeClientSocket() {
-        safeClose(clientSocket)
-        clientSocket = null
-        clientSocketConnecting = false
+    private fun closeInitiatorSocket() {
+        safeClose(initiatorSocket)
+        initiatorSocket = null
+        initiatorSocketConnecting = false
         updateControls()
     }
 
@@ -1474,10 +1341,166 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun setStatus(status: String) {
-        onMain {
-            statusView.text = "STATUS  $status"
+    private fun reloadPhotoState() {
+        localPhotos = photoStore.currentLocalPhotos()
+        receivedPhotos = photoStore.receivedPhotos()
+    }
+
+    private fun shareablePhotos(): List<PhotoItem> {
+        val deduped = LinkedHashMap<String, PhotoItem>()
+        (localPhotos + receivedPhotos).forEach { photo ->
+            if (!deduped.containsKey(photo.nhash)) {
+                deduped[photo.nhash] = photo
+            }
         }
+        return deduped.values.sortedByDescending { it.createdAtMs }
+    }
+
+    private fun allFeedPhotos(): List<PhotoItem> =
+        (localPhotos + receivedPhotos)
+            .sortedByDescending { it.createdAtMs }
+
+    private fun updateCounts() {
+        onMain {
+            localSummaryView.text = "Local photos: ${localPhotos.size}  ·  Taken on this phone"
+            nearbySummaryView.text = "Nearby photos: ${receivedPhotos.size}  ·  ${formatByteCount(photoStore.totalStorageBytes())}"
+            storageView.text = "STORAGE  ${formatByteCount(photoStore.totalStorageBytes())}"
+        }
+    }
+
+    private fun updateFeed() {
+        onMain {
+            feedContainer.removeAllViews()
+            val feed = allFeedPhotos()
+            if (feed.isEmpty()) {
+                feedEmptyView.visibility = View.VISIBLE
+                feedEmptyView.text = "No photos yet. Take a photo on Config, or fetch a nearby feed."
+                return@onMain
+            }
+
+            feedEmptyView.visibility = View.GONE
+            feed.forEachIndexed { index, photo ->
+                feedContainer.addView(createPhotoCard(photo))
+                if (index != feed.lastIndex) {
+                    feedContainer.addView(spacer(dp(12)))
+                }
+            }
+        }
+    }
+
+    private fun createPhotoCard(photo: PhotoItem): View {
+        val image =
+            ImageView(this).apply {
+                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(260))
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                background = roundedFill(parseColor("#0d1422"), parseColor("#26344a"))
+                setImageBitmap(decodePreviewBitmap(photo.file, 1080, 720))
+                clipToOutline = true
+            }
+
+        return cardContainer(
+            colors = intArrayOf(parseColor("#121929"), parseColor("#0d1321")),
+            strokeColor = parseColor("#233047"),
+        ).apply {
+            addView(image)
+            addView(spacer(dp(12)))
+            addView(
+                TextView(this@MainActivity).apply {
+                    text = photo.sourceLabel
+                    textSize = 12f
+                    setTextColor(parseColor("#9fb2ce"))
+                    setTypeface(Typeface.MONOSPACE, Typeface.BOLD)
+                },
+            )
+            addView(
+                TextView(this@MainActivity).apply {
+                    text = photo.id
+                    textSize = 18f
+                    setTextColor(Color.WHITE)
+                    setTypeface(Typeface.SANS_SERIF, Typeface.BOLD)
+                    setPadding(0, dp(6), 0, 0)
+                },
+            )
+            addView(
+                TextView(this@MainActivity).apply {
+                    text = "${formatTimestamp(photo.createdAtMs)}  ·  ${formatByteCount(photo.sizeBytes)}"
+                    textSize = 13f
+                    setTextColor(parseColor("#d7def0"))
+                    setPadding(0, dp(4), 0, 0)
+                },
+            )
+            addView(
+                TextView(this@MainActivity).apply {
+                    text = photo.nhash.takeLast(14)
+                    textSize = 11f
+                    setTextColor(parseColor("#9fb2ce"))
+                    setTypeface(Typeface.MONOSPACE)
+                    setPadding(0, dp(8), 0, 0)
+                },
+            )
+        }
+    }
+
+    private fun decodePreviewBitmap(
+        file: File,
+        targetWidth: Int,
+        targetHeight: Int,
+    ) = BitmapFactory.Options().run {
+        inJustDecodeBounds = true
+        BitmapFactory.decodeFile(file.absolutePath, this)
+        inSampleSize = computeSampleSize(outWidth, outHeight, targetWidth, targetHeight)
+        inJustDecodeBounds = false
+        BitmapFactory.decodeFile(file.absolutePath, this)
+    }
+
+    private fun computeSampleSize(
+        width: Int,
+        height: Int,
+        targetWidth: Int,
+        targetHeight: Int,
+    ): Int {
+        var sampleSize = 1
+        var currentWidth = width
+        var currentHeight = height
+        while (currentWidth / 2 >= targetWidth && currentHeight / 2 >= targetHeight) {
+            sampleSize *= 2
+            currentWidth /= 2
+            currentHeight /= 2
+        }
+        return sampleSize.coerceAtLeast(1)
+    }
+
+    private fun updatePage() {
+        onMain {
+            configPage.visibility = if (page == Page.CONFIG) View.VISIBLE else View.GONE
+            feedPage.visibility = if (page == Page.FEED) View.VISIBLE else View.GONE
+            pageConfigButton.alpha = if (page == Page.CONFIG) 1f else 0.7f
+            pageFeedButton.alpha = if (page == Page.FEED) 1f else 0.7f
+        }
+    }
+
+    private fun updateControls() {
+        onMain {
+            takePhotoButton.isEnabled = !transferInFlight
+            clearDataButton.isEnabled = !transferInFlight
+            startNearbyButton.isEnabled = role == Role.IDLE
+            stopButton.isEnabled = role != Role.IDLE
+            shareNowButton.isEnabled =
+                role == Role.PEER &&
+                    connectedSocket != null &&
+                    !initiatorSocketConnecting &&
+                    !transferInFlight &&
+                    shareablePhotos().isNotEmpty()
+            fetchPeerButton.isEnabled =
+                role == Role.PEER &&
+                    connectedSocket != null &&
+                    (publishPeerHandle != null || subscribePeerHandle != null) &&
+                    !transferInFlight
+        }
+    }
+
+    private fun setStatus(status: String) {
+        onMain { statusView.text = "STATUS  $status" }
     }
 
     private fun setTransportStatus(status: String) {
@@ -1485,354 +1508,12 @@ class MainActivity : Activity() {
         updateTransportView()
     }
 
-    private fun updateRoleView() {
-        onMain {
-            roleView.text = "MODE  ${roleLabel(role)}"
-        }
+    private fun updateModeView() {
+        onMain { modeView.text = "MODE  ${roleLabel(role)}" }
     }
 
     private fun updateTransportView() {
-        onMain {
-            transportView.text = "LINK  $transportStatus"
-        }
-    }
-
-    private fun updateTrackViews() {
-        onMain {
-            val filteredLocal = filteredTracks(localTracks)
-            val filteredReceived = filteredTracks(receivedTracks)
-            val activeTrack = selectedDisplayTrack(filteredLocal, filteredReceived)
-
-            val localSetLabel = shelfLabel(localTracks)
-            val receivedSetLabel = shelfLabel(receivedTracks)
-            localSummaryView.text = "Local shelf: ${localTracks.size} tracks  ·  $localSetLabel"
-            localSummaryView.setTextColor(parseColor("#d7def0"))
-            localSummaryView.textSize = 14f
-            receivedSummaryView.text =
-                "Nearby shelf: ${receivedTracks.size} fetched  ·  $receivedSetLabel  ·  ${formatByteCount(demoStore.totalStorageBytes())}"
-            receivedSummaryView.setTextColor(parseColor("#d7def0"))
-            receivedSummaryView.textSize = 14f
-            storageView.text = "STORAGE  ${formatByteCount(demoStore.totalStorageBytes())}"
-
-            bindHero(activeTrack)
-            renderTrackSection(
-                container = localTracksContainer,
-                emptyView = localEmptyView,
-                tracks = filteredLocal,
-                emptyMessage = if (localTracks.isEmpty()) {
-                    "No seeded shelf yet. Use Seed Set A or Seed Set B to create local audio."
-                } else {
-                    "No local tracks match \"$searchQuery\"."
-                },
-                sourceLabel = "Local",
-            )
-            renderTrackSection(
-                container = receivedTracksContainer,
-                emptyView = receivedEmptyView,
-                tracks = filteredReceived,
-                emptyMessage = if (receivedTracks.isEmpty()) {
-                    "Nothing fetched yet. Tap Start Nearby on both phones, wait for the Wi-Fi Aware peer socket, then tap Fetch From Peer."
-                } else {
-                    "No fetched tracks match \"$searchQuery\"."
-                },
-                sourceLabel = "Nearby",
-            )
-        }
-    }
-
-    private fun updateControls() {
-        onMain {
-            seedSetAButton.isEnabled = role == Role.IDLE
-            seedSetBButton.isEnabled = role == Role.IDLE
-            clearDataButton.isEnabled = !transferInFlight
-            startNearbyButton.isEnabled = role == Role.IDLE
-            stopButton.isEnabled = role != Role.IDLE
-            shareNowButton.isEnabled =
-                role == Role.PEER &&
-                connectedSocket != null &&
-                !clientSocketConnecting &&
-                !transferInFlight &&
-                shareableTracks().isNotEmpty()
-            fetchPeerButton.isEnabled =
-                role == Role.PEER &&
-                connectedSocket != null &&
-                (publishPeerHandle != null || subscribePeerHandle != null) &&
-                !transferInFlight
-            heroActionButton.isEnabled = selectedDisplayTrack() != null
-        }
-    }
-
-    private fun reloadTrackState() {
-        localTracks = demoStore.currentLocalTracks()
-        receivedTracks = demoStore.receivedTracks()
-    }
-
-    private fun filteredTracks(tracks: List<AudioTrackInfo>): List<AudioTrackInfo> {
-        val trimmed = searchQuery.trim()
-        if (trimmed.isEmpty()) {
-            return tracks.sortedBy { it.title.lowercase(Locale.US) }
-        }
-        val needle = trimmed.lowercase(Locale.US)
-        return tracks.filter { track ->
-            track.title.lowercase(Locale.US).contains(needle) ||
-                track.artist.lowercase(Locale.US).contains(needle) ||
-                track.album.lowercase(Locale.US).contains(needle)
-        }.sortedBy { it.title.lowercase(Locale.US) }
-    }
-
-    private fun shareableTracks(): List<AudioTrackInfo> {
-        val deduped = LinkedHashMap<String, AudioTrackInfo>()
-        (localTracks + receivedTracks).forEach { track ->
-            if (!deduped.containsKey(track.nhash)) {
-                deduped[track.nhash] = track
-            }
-        }
-        return deduped.values.sortedBy { it.id }
-    }
-
-    private fun selectedDisplayTrack(
-        filteredLocal: List<AudioTrackInfo> = filteredTracks(localTracks),
-        filteredReceived: List<AudioTrackInfo> = filteredTracks(receivedTracks),
-    ): AudioTrackInfo? {
-        val candidates = filteredLocal + filteredReceived
-        val selected = selectedTrackNhash?.let { nhash -> candidates.firstOrNull { it.nhash == nhash } }
-        if (selected != null) {
-            return selected
-        }
-        val fallback = candidates.firstOrNull()
-        selectedTrackNhash = fallback?.nhash
-        return fallback
-    }
-
-    private fun bindHero(track: AudioTrackInfo?) {
-        if (track == null) {
-            heroArtView.text = "--"
-            heroArtView.background = roundedFill(parseColor("#111827"), parseColor("#24324a"))
-            heroEyebrowView.text = "Seed a shelf or fetch nearby"
-            heroTitleView.text = "No active track"
-            heroMetaView.text = "This screen turns into a player as soon as you have local or fetched audio."
-            heroDetailView.text = "Both phones can start nearby mode, connect as peers, and fetch or share over Wi-Fi Aware."
-            heroActionButton.text = "Play"
-            heroActionButton.isEnabled = false
-            return
-        }
-
-        val spec = AudioDemoCatalog.specForId(track.id)
-        heroArtView.text = spec?.coverSeed ?: track.id.take(2).uppercase(Locale.US)
-        heroArtView.background =
-            GradientDrawable(
-                GradientDrawable.Orientation.BL_TR,
-                intArrayOf(
-                    parseColor(spec?.accentHex ?: "#334155"),
-                    parseColor(spec?.secondaryAccentHex ?: "#64748b"),
-                ),
-            ).apply {
-                cornerRadius = dp(28).toFloat()
-            }
-        heroEyebrowView.text =
-            if (receivedTracks.any { it.nhash == track.nhash }) {
-                "Fetched via Wi-Fi Aware"
-            } else {
-                "Seeded on this phone"
-            }
-        heroTitleView.text = track.title
-        heroMetaView.text = "${track.artist}  ·  ${track.album}"
-        heroDetailView.text =
-            buildString {
-                append(spec?.genre ?: "Audio demo")
-                append("  ·  ")
-                append(track.setLabel)
-                append("  ·  ")
-                append(track.nhash.takeLast(10))
-            }
-        heroActionButton.text =
-            if (playingTrackNhash == track.nhash) {
-                "Stop Playback"
-            } else {
-                "Play Track"
-            }
-        heroActionButton.isEnabled = true
-    }
-
-    private fun renderTrackSection(
-        container: LinearLayout,
-        emptyView: TextView,
-        tracks: List<AudioTrackInfo>,
-        emptyMessage: String,
-        sourceLabel: String,
-    ) {
-        container.removeAllViews()
-        if (tracks.isEmpty()) {
-            emptyView.visibility = View.VISIBLE
-            emptyView.text = emptyMessage
-            return
-        }
-
-        emptyView.visibility = View.GONE
-        tracks.forEachIndexed { index, track ->
-            container.addView(createTrackRow(track, sourceLabel))
-            if (index != tracks.lastIndex) {
-                container.addView(spacer(dp(10)))
-            }
-        }
-    }
-
-    private fun createTrackRow(
-        track: AudioTrackInfo,
-        sourceLabel: String,
-    ): View {
-        val spec = AudioDemoCatalog.specForId(track.id)
-        val accent = parseColor(spec?.accentHex ?: "#334155")
-        val secondary = parseColor(spec?.secondaryAccentHex ?: "#64748b")
-        val isSelected = selectedTrackNhash == track.nhash
-        val isPlaying = playingTrackNhash == track.nhash
-
-        val row =
-            LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                background =
-                    GradientDrawable(
-                        GradientDrawable.Orientation.LEFT_RIGHT,
-                        intArrayOf(
-                            adjustAlpha(accent, if (isSelected) 0.26f else 0.16f),
-                            adjustAlpha(secondary, if (isSelected) 0.16f else 0.08f),
-                        ),
-                    ).apply {
-                        cornerRadius = dp(22).toFloat()
-                        setStroke(dp(if (isSelected) 2 else 1), adjustAlpha(secondary, 0.55f))
-                    }
-                setPadding(dp(14), dp(14), dp(14), dp(14))
-                setOnClickListener {
-                    selectedTrackNhash = track.nhash
-                    updateTrackViews()
-                }
-            }
-
-        row.addView(
-            TextView(this).apply {
-                text = spec?.coverSeed ?: track.id.take(2).uppercase(Locale.US)
-                gravity = Gravity.CENTER
-                setTextColor(Color.WHITE)
-                textSize = 16f
-                setTypeface(Typeface.MONOSPACE, Typeface.BOLD)
-                background =
-                    GradientDrawable(
-                        GradientDrawable.Orientation.BL_TR,
-                        intArrayOf(accent, secondary),
-                    ).apply {
-                        cornerRadius = dp(18).toFloat()
-                    }
-                layoutParams = LinearLayout.LayoutParams(dp(60), dp(60))
-            },
-        )
-
-        row.addView(
-            LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(14), 0, dp(14), 0)
-                layoutParams =
-                    LinearLayout.LayoutParams(
-                        0,
-                        ViewGroup.LayoutParams.WRAP_CONTENT,
-                        1f,
-                    )
-                addView(
-                    TextView(this@MainActivity).apply {
-                        text = track.title
-                        textSize = 17f
-                        setTextColor(Color.WHITE)
-                        setTypeface(Typeface.SANS_SERIF, Typeface.BOLD)
-                    },
-                )
-                addView(
-                    TextView(this@MainActivity).apply {
-                        text = "${track.artist}  ·  ${track.album}"
-                        textSize = 13f
-                        setTextColor(parseColor("#d7def0"))
-                        setPadding(0, dp(4), 0, 0)
-                    },
-                )
-                addView(
-                    TextView(this@MainActivity).apply {
-                        text = "$sourceLabel  ·  ${track.setLabel}  ·  ${track.nhash.takeLast(10)}"
-                        textSize = 11f
-                        setTextColor(parseColor("#9fb2ce"))
-                        setTypeface(Typeface.MONOSPACE)
-                        setPadding(0, dp(6), 0, 0)
-                    },
-                )
-            },
-        )
-
-        row.addView(
-            buildAccentButton(
-                if (isPlaying) {
-                    "Stop"
-                } else {
-                    "Play"
-                },
-                spec?.accentHex ?: "#334155",
-                spec?.secondaryAccentHex ?: "#64748b",
-            ).apply {
-                layoutParams = LinearLayout.LayoutParams(dp(92), ViewGroup.LayoutParams.WRAP_CONTENT)
-                setOnClickListener {
-                    selectedTrackNhash = track.nhash
-                    togglePlayback(track)
-                }
-            },
-        )
-
-        return row
-    }
-
-    private fun togglePlayback(track: AudioTrackInfo) {
-        if (playingTrackNhash == track.nhash) {
-            stopPlayback("Stopped playback for ${track.title}.")
-            return
-        }
-
-        try {
-            releasePlayer()
-            val player =
-                MediaPlayer().apply {
-                    setDataSource(track.file.absolutePath)
-                    setOnCompletionListener {
-                        releasePlayer()
-                        appendLog("Playback finished for ${track.title}.")
-                        updateTrackViews()
-                    }
-                    prepare()
-                    start()
-                }
-            mediaPlayer = player
-            playingTrackNhash = track.nhash
-            selectedTrackNhash = track.nhash
-            appendLog("Playing ${track.title} from ${track.file.absolutePath}.")
-            updateTrackViews()
-        } catch (e: Exception) {
-            releasePlayer()
-            appendLog("Playback failed for ${track.title}: ${e.message}")
-            updateTrackViews()
-        }
-    }
-
-    private fun stopPlayback(logMessage: String? = null) {
-        try {
-            mediaPlayer?.stop()
-        } catch (_: Exception) {
-        }
-        releasePlayer()
-        if (logMessage != null) {
-            appendLog(logMessage)
-        }
-        updateTrackViews()
-    }
-
-    private fun releasePlayer() {
-        mediaPlayer?.release()
-        mediaPlayer = null
-        playingTrackNhash = null
+        onMain { transportView.text = "LINK  $transportStatus" }
     }
 
     private fun appendLog(message: String) {
@@ -1849,9 +1530,7 @@ class MainActivity : Activity() {
     }
 
     private fun renderLog() {
-        onMain {
-            logView.text = logLines.joinToString("\n")
-        }
+        onMain { logView.text = logLines.joinToString("\n") }
     }
 
     private fun onMain(block: () -> Unit) {
@@ -1862,51 +1541,51 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun roleLabel(value: Role): String {
-        return when (value) {
+    private fun roleLabel(value: Role): String =
+        when (value) {
             Role.IDLE -> "Idle"
             Role.PEER -> "Nearby"
         }
-    }
 
-    private fun shelfLabel(tracks: List<AudioTrackInfo>): String {
-        if (tracks.isEmpty()) {
-            return "none"
-        }
-        return tracks
-            .map { it.setLabel }
-            .distinct()
-            .sorted()
-            .joinToString(" + ")
-    }
+    private fun peerLabel(peerHandle: PeerHandle): String = "peer-${peerHandle.hashCode().toUInt().toString(16)}"
 
-    private fun peerLabel(peerHandle: PeerHandle): String {
-        return "peer-${peerHandle.hashCode().toUInt().toString(16)}"
-    }
-
-    private fun formatByteCount(bytes: Long): String {
-        return when {
+    private fun formatByteCount(bytes: Long): String =
+        when {
             bytes >= 1_000_000L -> String.format(Locale.US, "%.2f MB", bytes / 1_000_000.0)
             bytes >= 1_000L -> String.format(Locale.US, "%.2f KB", bytes / 1_000.0)
             else -> "$bytes B"
         }
-    }
 
-    private fun buildStatPill(): TextView {
-        return TextView(this).apply {
+    private fun formatTimestamp(createdAtMs: Long): String =
+        SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date(createdAtMs))
+
+    private fun buildStatPill(): TextView =
+        TextView(this).apply {
             setTextColor(Color.WHITE)
             textSize = 12f
             setTypeface(Typeface.MONOSPACE, Typeface.BOLD)
             background = roundedFill(parseColor("#111827"), parseColor("#233047"))
             setPadding(dp(12), dp(10), dp(12), dp(10))
         }
-    }
+
+    private fun buildBodyText(): TextView =
+        TextView(this).apply {
+            setTextColor(parseColor("#d7def0"))
+            textSize = 14f
+        }
+
+    private fun buildEmptyText(): TextView =
+        TextView(this).apply {
+            setTextColor(parseColor("#9fb2ce"))
+            textSize = 14f
+            setPadding(0, dp(8), 0, 0)
+        }
 
     private fun cardContainer(
         colors: IntArray = intArrayOf(parseColor("#121929"), parseColor("#0d1321")),
         strokeColor: Int = parseColor("#233047"),
-    ): LinearLayout {
-        return LinearLayout(this).apply {
+    ): LinearLayout =
+        LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background =
                 GradientDrawable(
@@ -1918,141 +1597,105 @@ class MainActivity : Activity() {
                 }
             setPadding(dp(18), dp(18), dp(18), dp(18))
         }
-    }
 
-    private fun sectionTitle(text: String): TextView {
-        return TextView(this).apply {
+    private fun sectionTitle(text: String): TextView =
+        TextView(this).apply {
             this.text = text
             textSize = 20f
             setTextColor(Color.WHITE)
             setTypeface(Typeface.SANS_SERIF, Typeface.BOLD)
         }
-    }
 
     private fun buildAccentButton(
         text: String,
-        startHex: String,
-        endHex: String,
-    ): Button {
-        return Button(this).apply {
+        startColor: String,
+        endColor: String,
+    ): Button =
+        Button(this).apply {
             this.text = text
             isAllCaps = false
             setTextColor(Color.WHITE)
+            textSize = 15f
             setTypeface(Typeface.SANS_SERIF, Typeface.BOLD)
-            textSize = 14f
             background =
                 GradientDrawable(
                     GradientDrawable.Orientation.LEFT_RIGHT,
-                    intArrayOf(parseColor(startHex), parseColor(endHex)),
+                    intArrayOf(parseColor(startColor), parseColor(endColor)),
                 ).apply {
                     cornerRadius = dp(20).toFloat()
                 }
-            setPadding(dp(16), dp(14), dp(16), dp(14))
+            minimumHeight = dp(48)
         }
-    }
 
-    private fun buildMutedButton(text: String): Button {
-        return Button(this).apply {
+    private fun buildMutedButton(text: String): Button =
+        Button(this).apply {
             this.text = text
             isAllCaps = false
             setTextColor(Color.WHITE)
+            textSize = 15f
             setTypeface(Typeface.SANS_SERIF, Typeface.BOLD)
-            textSize = 14f
-            background = roundedFill(parseColor("#192235"), parseColor("#31435e"))
-            setPadding(dp(16), dp(14), dp(16), dp(14))
+            background = roundedFill(parseColor("#141d2d"), parseColor("#2d3a55"))
+            minimumHeight = dp(48)
         }
-    }
 
-    private fun buildGhostButton(text: String): Button {
-        return Button(this).apply {
+    private fun buildGhostButton(text: String): Button =
+        Button(this).apply {
             this.text = text
             isAllCaps = false
             setTextColor(parseColor("#d7def0"))
-            setTypeface(Typeface.MONOSPACE, Typeface.BOLD)
-            textSize = 13f
-            background = roundedFill(adjustAlpha(parseColor("#0b1220"), 0.8f), parseColor("#233047"))
-            setPadding(dp(16), dp(14), dp(16), dp(14))
+            textSize = 15f
+            setTypeface(Typeface.SANS_SERIF, Typeface.BOLD)
+            background = roundedFill(parseColor("#0d1422"), parseColor("#26344a"))
+            minimumHeight = dp(48)
         }
-    }
-
-    private fun buildEmptyText(): TextView {
-        return TextView(this).apply {
-            textSize = 13f
-            setTextColor(parseColor("#9fb2ce"))
-            setPadding(0, dp(4), 0, 0)
-        }
-    }
-
-    private fun buttonRow(vararg buttons: Button): LinearLayout {
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.START
-            buttons.forEachIndexed { index, button ->
-                val params =
-                    LinearLayout.LayoutParams(
-                        0,
-                        ViewGroup.LayoutParams.WRAP_CONTENT,
-                        1f,
-                    )
-                if (index > 0) {
-                    params.marginStart = dp(10)
-                }
-                addView(button, params)
-            }
-        }
-    }
-
-    private fun statRow(
-        left: TextView,
-        right: TextView,
-    ): LinearLayout {
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            addView(
-                left,
-                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                    marginEnd = dp(6)
-                },
-            )
-            addView(
-                right,
-                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                    marginStart = dp(6)
-                },
-            )
-        }
-    }
 
     private fun roundedFill(
         fillColor: Int,
         strokeColor: Int,
-    ): GradientDrawable {
-        return GradientDrawable().apply {
+    ): GradientDrawable =
+        GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
             cornerRadius = dp(20).toFloat()
             setColor(fillColor)
             setStroke(dp(1), strokeColor)
         }
-    }
 
-    private fun spacer(height: Int): View {
-        return View(this).apply {
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                height,
-            )
+    private fun statRow(vararg views: View): LinearLayout =
+        LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            views.forEachIndexed { index, view ->
+                val params =
+                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                        if (index > 0) {
+                            marginStart = dp(10)
+                        }
+                    }
+                addView(view, params)
+            }
         }
-    }
 
-    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).roundToInt()
+    private fun buttonRow(vararg views: View): LinearLayout =
+        LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            views.forEachIndexed { index, view ->
+                val params =
+                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                        if (index > 0) {
+                            marginStart = dp(10)
+                        }
+                    }
+                addView(view, params)
+            }
+        }
 
-    private fun parseColor(value: String): Int = Color.parseColor(value)
+    private fun spacer(heightPx: Int): View =
+        View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, heightPx)
+        }
 
-    private fun adjustAlpha(
-        color: Int,
-        factor: Float,
-    ): Int {
-        val alpha = (Color.alpha(color) * factor).roundToInt().coerceIn(0, 255)
-        return Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color))
-    }
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+    private fun parseColor(hex: String): Int = Color.parseColor(hex)
 }
