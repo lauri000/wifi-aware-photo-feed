@@ -202,8 +202,8 @@ class MainActivity : Activity() {
     }
 
     private fun buildUi(): ScrollView {
-        val contentPadding = dp(20)
-        val sectionSpacing = dp(18)
+        val contentPadding = dp(18)
+        val sectionSpacing = dp(16)
 
         statusView = buildStatPill()
         modeView = buildStatPill()
@@ -250,62 +250,129 @@ class MainActivity : Activity() {
             setOnClickListener { dispatchUiAction(UiAction.ClearLogRequested) }
         }
 
+        val pageSwitcher =
+            LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                background = roundedFill(parseColor("#101826"), parseColor("#26344a"), dp(24))
+                setPadding(dp(6), dp(6), dp(6), dp(6))
+                addView(
+                    pageConfigButton,
+                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
+                )
+                addView(
+                    pageFeedButton,
+                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                        marginStart = dp(8)
+                    },
+                )
+            }
+
         val headerCard =
-            cardContainer().apply {
+            cardContainer(
+                colors = intArrayOf(parseColor("#17120f"), parseColor("#0d1220")),
+                strokeColor = parseColor("#6b3416"),
+                radiusDp = 34,
+            ).apply {
+                addView(
+                    buildTag("OFFLINE PHOTO MESH", "#2b170d", "#8a4b1c"),
+                )
+                addView(spacer(dp(14)))
                 addView(
                     TextView(this@MainActivity).apply {
                         text = "Local Instagram"
-                        textSize = 30f
+                        textSize = 34f
                         setTextColor(Color.WHITE)
-                        setTypeface(Typeface.SANS_SERIF, Typeface.BOLD)
+                        setTypeface(Typeface.SERIF, Typeface.BOLD)
                     },
                 )
                 addView(
                     TextView(this@MainActivity).apply {
-                        text = "Take photos, store them in hashtree-addressed local storage, then move them directly between phones over Wi-Fi Aware."
-                        textSize = 14f
-                        setTextColor(parseColor("#9fb2ce"))
-                        setPadding(0, dp(6), 0, dp(14))
+                        text = "A camera-only social demo that keeps JPEGs in app-owned hashtree storage and moves them phone to phone over Wi-Fi Aware."
+                        textSize = 15f
+                        setTextColor(parseColor("#d1d8e9"))
+                        setPadding(0, dp(8), 0, dp(18))
                     },
                 )
+                addView(pageSwitcher)
+                addView(spacer(dp(18)))
                 addView(statRow(statusView, modeView))
                 addView(spacer(dp(10)))
                 addView(statRow(transportView, storageView))
-                addView(spacer(dp(14)))
-                addView(buttonRow(pageConfigButton, pageFeedButton))
             }
 
         configPage =
             cardContainer().apply {
-                addView(sectionTitle("Config"))
+                addView(sectionTitle("Control Room"))
                 addView(
                     TextView(this@MainActivity).apply {
-                        text = "Use this page to capture photos, connect nearby peers, fetch their feed, and inspect the transport log."
+                        text = "Capture on this phone, light up nearby mode, fetch another phone's feed, or push your current photos back out."
                         textSize = 13f
                         setTextColor(parseColor("#9fb2ce"))
                         setPadding(0, dp(6), 0, dp(14))
                     },
                 )
-                addView(localSummaryView)
-                addView(nearbySummaryView.apply { setPadding(0, dp(8), 0, dp(14)) })
-                addView(buttonRow(takePhotoButton, startNearbyButton))
+                addView(
+                    miniCard(title = "This Phone", accent = parseColor("#fb923c")).apply {
+                        addView(localSummaryView)
+                        addView(
+                            TextView(this@MainActivity).apply {
+                                text = "Use the camera only. No gallery access."
+                                textSize = 12f
+                                setTextColor(parseColor("#7f8da7"))
+                                setPadding(0, dp(8), 0, 0)
+                            },
+                        )
+                    },
+                )
                 addView(spacer(dp(10)))
-                addView(buttonRow(fetchPeerButton, shareNowButton))
+                addView(
+                    miniCard(title = "Nearby Peer", accent = parseColor("#38bdf8")).apply {
+                        addView(nearbySummaryView)
+                        addView(
+                            TextView(this@MainActivity).apply {
+                                text = "Wi-Fi Aware sync happens only while both phones stay open."
+                                textSize = 12f
+                                setTextColor(parseColor("#7f8da7"))
+                                setPadding(0, dp(8), 0, 0)
+                            },
+                        )
+                    },
+                )
+                addView(spacer(dp(14)))
+                addView(
+                    miniCard(title = "Capture + Presence", accent = parseColor("#f97316")).apply {
+                        addView(buttonRow(takePhotoButton, startNearbyButton))
+                    },
+                )
                 addView(spacer(dp(10)))
-                addView(buttonRow(stopButton, clearDataButton))
+                addView(
+                    miniCard(title = "Move Photos", accent = parseColor("#0ea5e9")).apply {
+                        addView(buttonRow(fetchPeerButton, shareNowButton))
+                    },
+                )
                 addView(spacer(dp(10)))
-                addView(buttonRow(clearLogButton))
+                addView(
+                    miniCard(title = "Reset + Cleanup", accent = parseColor("#7c3aed")).apply {
+                        addView(buttonRow(stopButton, clearDataButton))
+                        addView(spacer(dp(10)))
+                        addView(buttonRow(clearLogButton))
+                    },
+                )
                 addView(spacer(dp(18)))
-                addView(sectionTitle("Transport Log"))
+                addView(sectionTitle("Proof Log"))
                 addView(
                     TextView(this@MainActivity).apply {
-                        text = "This is the proof that photo bytes crossed the Wi-Fi Aware data path and were re-verified by nhash."
+                        text = "Every discovery event, socket connection, transfer, and nhash verification lands here."
                         textSize = 13f
                         setTextColor(parseColor("#9fb2ce"))
                         setPadding(0, dp(6), 0, dp(12))
                     },
                 )
-                addView(logView)
+                addView(
+                    miniCard(title = "Transport", accent = parseColor("#22c55e")).apply {
+                        addView(logView)
+                    },
+                )
             }
 
         feedPage =
@@ -313,12 +380,24 @@ class MainActivity : Activity() {
                 addView(sectionTitle("Photo Feed"))
                 addView(
                     TextView(this@MainActivity).apply {
-                        text = "Newest photos first. Local photos and nearby photos are shown together in one feed."
+                        text = "Newest first. Local captures and nearby fetches live in one timeline."
                         textSize = 13f
                         setTextColor(parseColor("#9fb2ce"))
                         setPadding(0, dp(6), 0, dp(12))
                     },
                 )
+                addView(
+                    miniCard(title = "Feed Rules", accent = parseColor("#ec4899")).apply {
+                        addView(
+                            TextView(this@MainActivity).apply {
+                                text = "Open Config to capture or sync. The feed keeps the photos and the proof-oriented metadata together."
+                                textSize = 13f
+                                setTextColor(parseColor("#d7def0"))
+                            },
+                        )
+                    },
+                )
+                addView(spacer(dp(14)))
                 addView(feedContainer)
                 addView(feedEmptyView)
             }
@@ -339,7 +418,11 @@ class MainActivity : Activity() {
             background =
                 GradientDrawable(
                     GradientDrawable.Orientation.TOP_BOTTOM,
-                    intArrayOf(parseColor("#0d1220"), parseColor("#05070c")),
+                    intArrayOf(
+                        parseColor("#1a120e"),
+                        parseColor("#0d1220"),
+                        parseColor("#05070c"),
+                    ),
                 )
             addView(
                 content,
@@ -408,20 +491,20 @@ class MainActivity : Activity() {
     }
 
     private fun applyControls(controls: ControlsEnabled) {
-        takePhotoButton.isEnabled = controls.takePhoto
-        startNearbyButton.isEnabled = controls.startNearby
-        stopButton.isEnabled = controls.stop
-        fetchPeerButton.isEnabled = controls.fetchFromPeer
-        shareNowButton.isEnabled = controls.shareAvailablePhotos
-        clearDataButton.isEnabled = controls.clearDemoData
-        clearLogButton.isEnabled = controls.clearLog
+        setButtonState(takePhotoButton, controls.takePhoto)
+        setButtonState(startNearbyButton, controls.startNearby)
+        setButtonState(stopButton, controls.stop)
+        setButtonState(fetchPeerButton, controls.fetchFromPeer)
+        setButtonState(shareNowButton, controls.shareAvailablePhotos)
+        setButtonState(clearDataButton, controls.clearDemoData)
+        setButtonState(clearLogButton, controls.clearLog)
     }
 
     private fun applyPage(page: UiPage) {
         configPage.visibility = if (page == UiPage.CONFIG) View.VISIBLE else View.GONE
         feedPage.visibility = if (page == UiPage.FEED) View.VISIBLE else View.GONE
-        pageConfigButton.alpha = if (page == UiPage.CONFIG) 1f else 0.7f
-        pageFeedButton.alpha = if (page == UiPage.FEED) 1f else 0.7f
+        stylePageButton(pageConfigButton, page == UiPage.CONFIG)
+        stylePageButton(pageFeedButton, page == UiPage.FEED)
     }
 
     private fun applyFeed(feedItems: List<FeedItem>) {
@@ -913,36 +996,38 @@ class MainActivity : Activity() {
         }
 
     private fun createPhotoCard(item: FeedItem): View {
+        val sourceAccent =
+            if (item.sourceLabel.contains("Taken Here", ignoreCase = true)) {
+                parseColor("#fb923c")
+            } else {
+                parseColor("#38bdf8")
+            }
         val image =
             ImageView(this).apply {
-                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(260))
+                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(280))
                 scaleType = ImageView.ScaleType.CENTER_CROP
-                background = roundedFill(parseColor("#0d1422"), parseColor("#26344a"))
+                background = roundedFill(parseColor("#0d1422"), parseColor("#26344a"), dp(24))
                 setImageBitmap(decodePreviewBitmap(File(item.filePath), 1080, 720))
                 clipToOutline = true
             }
 
         return cardContainer(
-            colors = intArrayOf(parseColor("#121929"), parseColor("#0d1321")),
-            strokeColor = parseColor("#233047"),
+            colors = intArrayOf(parseColor("#15111e"), parseColor("#0d1321")),
+            strokeColor = parseColor("#2a3550"),
+            radiusDp = 28,
         ).apply {
+            addView(
+                buildTag(item.sourceLabel.uppercase(Locale.US), "#111827", colorToHex(sourceAccent)),
+            )
+            addView(spacer(dp(12)))
             addView(image)
             addView(spacer(dp(12)))
             addView(
                 TextView(this@MainActivity).apply {
-                    text = item.sourceLabel
-                    textSize = 12f
-                    setTextColor(parseColor("#9fb2ce"))
-                    setTypeface(Typeface.MONOSPACE, Typeface.BOLD)
-                },
-            )
-            addView(
-                TextView(this@MainActivity).apply {
                     text = item.id
-                    textSize = 18f
+                    textSize = 20f
                     setTextColor(Color.WHITE)
-                    setTypeface(Typeface.SANS_SERIF, Typeface.BOLD)
-                    setPadding(0, dp(6), 0, 0)
+                    setTypeface(Typeface.SERIF, Typeface.BOLD)
                 },
             )
             addView(
@@ -950,17 +1035,15 @@ class MainActivity : Activity() {
                     text = "${formatTimestamp(item.createdAtMs)}  ·  ${formatByteCount(item.sizeBytes.toLong())}"
                     textSize = 13f
                     setTextColor(parseColor("#d7def0"))
-                    setPadding(0, dp(4), 0, 0)
+                    setPadding(0, dp(6), 0, 0)
                 },
             )
+            addView(spacer(dp(10)))
             addView(
-                TextView(this@MainActivity).apply {
-                    text = item.nhashSuffix
-                    textSize = 11f
-                    setTextColor(parseColor("#9fb2ce"))
-                    setTypeface(Typeface.MONOSPACE)
-                    setPadding(0, dp(8), 0, 0)
-                },
+                tagRow(
+                    buildTag("nhash ${item.nhashSuffix}", "#0f172a", "#334155"),
+                    buildTag("local-first jpeg", "#0f172a", "#3b82f6"),
+                ),
             )
         }
     }
@@ -999,8 +1082,8 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             textSize = 12f
             setTypeface(Typeface.MONOSPACE, Typeface.BOLD)
-            background = roundedFill(parseColor("#111827"), parseColor("#233047"))
-            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = roundedFill(parseColor("#111827"), parseColor("#233047"), dp(20))
+            setPadding(dp(14), dp(12), dp(14), dp(12))
         }
 
     private fun buildBodyText(): TextView =
@@ -1019,6 +1102,7 @@ class MainActivity : Activity() {
     private fun cardContainer(
         colors: IntArray = intArrayOf(parseColor("#121929"), parseColor("#0d1321")),
         strokeColor: Int = parseColor("#233047"),
+        radiusDp: Int = 30,
     ): LinearLayout =
         LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -1027,7 +1111,7 @@ class MainActivity : Activity() {
                     GradientDrawable.Orientation.TOP_BOTTOM,
                     colors,
                 ).apply {
-                    cornerRadius = dp(30).toFloat()
+                    cornerRadius = dp(radiusDp).toFloat()
                     setStroke(dp(1), strokeColor)
                 }
             setPadding(dp(18), dp(18), dp(18), dp(18))
@@ -1057,7 +1141,7 @@ class MainActivity : Activity() {
                     GradientDrawable.Orientation.LEFT_RIGHT,
                     intArrayOf(parseColor(startColor), parseColor(endColor)),
                 ).apply {
-                    cornerRadius = dp(20).toFloat()
+                    cornerRadius = dp(22).toFloat()
                 }
             minimumHeight = dp(48)
         }
@@ -1069,7 +1153,7 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE)
             textSize = 15f
             setTypeface(Typeface.SANS_SERIF, Typeface.BOLD)
-            background = roundedFill(parseColor("#141d2d"), parseColor("#2d3a55"))
+            background = roundedFill(parseColor("#141d2d"), parseColor("#2d3a55"), dp(22))
             minimumHeight = dp(48)
         }
 
@@ -1080,19 +1164,80 @@ class MainActivity : Activity() {
             setTextColor(parseColor("#d7def0"))
             textSize = 15f
             setTypeface(Typeface.SANS_SERIF, Typeface.BOLD)
-            background = roundedFill(parseColor("#0d1422"), parseColor("#26344a"))
+            background = roundedFill(parseColor("#0d1422"), parseColor("#26344a"), dp(22))
             minimumHeight = dp(48)
         }
 
     private fun roundedFill(
         fillColor: Int,
         strokeColor: Int,
+        cornerRadiusPx: Int = dp(20),
     ): GradientDrawable =
         GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
-            cornerRadius = dp(20).toFloat()
+            cornerRadius = cornerRadiusPx.toFloat()
             setColor(fillColor)
             setStroke(dp(1), strokeColor)
+        }
+
+    private fun buildTag(
+        text: String,
+        fillHex: String,
+        strokeHex: String,
+    ): TextView =
+        TextView(this).apply {
+            this.text = text
+            textSize = 11f
+            setTextColor(Color.WHITE)
+            setTypeface(Typeface.MONOSPACE, Typeface.BOLD)
+            background = roundedFill(parseColor(fillHex), parseColor(strokeHex), dp(18))
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+        }
+
+    private fun tagRow(vararg views: View): LinearLayout =
+        LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.START or Gravity.CENTER_VERTICAL
+            views.forEachIndexed { index, view ->
+                addView(view)
+                if (index != views.lastIndex) {
+                    addView(spacerWidth(dp(8)))
+                }
+            }
+        }
+
+    private fun miniCard(
+        title: String,
+        accent: Int,
+    ): LinearLayout =
+        cardContainer(
+            colors = intArrayOf(parseColor("#0f1724"), parseColor("#101827")),
+            strokeColor = parseColor("#243247"),
+            radiusDp = 24,
+        ).apply {
+            addView(
+                TextView(this@MainActivity).apply {
+                    text = title
+                    textSize = 14f
+                    setTextColor(Color.WHITE)
+                    setTypeface(Typeface.SANS_SERIF, Typeface.BOLD)
+                },
+            )
+            addView(
+                View(this@MainActivity).apply {
+                    layoutParams =
+                        LinearLayout.LayoutParams(dp(44), dp(3)).apply {
+                            topMargin = dp(8)
+                            bottomMargin = dp(12)
+                        }
+                    background =
+                        GradientDrawable().apply {
+                            shape = GradientDrawable.RECTANGLE
+                            cornerRadius = dp(2).toFloat()
+                            setColor(accent)
+                        }
+                },
+            )
         }
 
     private fun statRow(vararg views: View): LinearLayout =
@@ -1129,6 +1274,40 @@ class MainActivity : Activity() {
         View(this).apply {
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, heightPx)
         }
+
+    private fun spacerWidth(widthPx: Int): View =
+        View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(widthPx, 1)
+        }
+
+    private fun setButtonState(
+        button: Button,
+        enabled: Boolean,
+    ) {
+        button.isEnabled = enabled
+        button.alpha = if (enabled) 1f else 0.45f
+    }
+
+    private fun stylePageButton(
+        button: Button,
+        selected: Boolean,
+    ) {
+        button.alpha = 1f
+        button.setTextColor(if (selected) Color.WHITE else parseColor("#b3c0d9"))
+        button.background =
+            if (selected) {
+                GradientDrawable(
+                    GradientDrawable.Orientation.LEFT_RIGHT,
+                    intArrayOf(parseColor("#f97316"), parseColor("#fb7185")),
+                ).apply {
+                    cornerRadius = dp(18).toFloat()
+                }
+            } else {
+                roundedFill(parseColor("#0f1724"), parseColor("#223047"), dp(18))
+            }
+    }
+
+    private fun colorToHex(color: Int): String = String.format("#%06X", 0xFFFFFF and color)
 
     private fun handleId(peerHandle: PeerHandle): Long = peerHandle.hashCode().toLong()
 
