@@ -1,7 +1,17 @@
+mod app_core;
+mod photo_store;
+mod protocol;
+mod types;
+
 use std::sync::{Arc, OnceLock};
 
+pub use app_core::AppCore;
 use futures::io::AllowStdIo;
 use hashtree_core::{nhash_encode_full, HashTree, HashTreeConfig, MemoryStore, NHashData};
+pub use types::{
+    AndroidCommand, AndroidEvent, ControlsEnabled, DiscoveryChannel, FeedItem, SocketSide,
+    UiAction, UiPage, ViewState,
+};
 
 #[derive(Debug, Clone, thiserror::Error, uniffi::Error)]
 pub enum NearbyHashtreeError {
@@ -21,25 +31,30 @@ fn runtime() -> &'static tokio::runtime::Runtime {
 
 #[uniffi::export]
 pub fn compute_nhash_from_file(file_path: String) -> Result<String, NearbyHashtreeError> {
-    runtime().block_on(compute_nhash_from_file_impl(&file_path))
+    compute_nhash_from_file_impl(&file_path)
 }
 
-async fn compute_nhash_from_file_impl(file_path: &str) -> Result<String, NearbyHashtreeError> {
-    let file = std::fs::File::open(file_path)
-        .map_err(|e| NearbyHashtreeError::Message(format!("failed to open {}: {}", file_path, e)))?;
+pub(crate) fn compute_nhash_from_file_impl(
+    file_path: &str,
+) -> Result<String, NearbyHashtreeError> {
+    runtime().block_on(async move {
+        let file = std::fs::File::open(file_path).map_err(|e| {
+            NearbyHashtreeError::Message(format!("failed to open {}: {}", file_path, e))
+        })?;
 
-    let store = MemoryStore::new();
-    let tree = HashTree::new(HashTreeConfig::new(Arc::new(store)).public());
-    let (cid, _size) = tree
-        .put_stream(AllowStdIo::new(file))
-        .await
-        .map_err(|e| NearbyHashtreeError::Message(format!("failed to hash file: {}", e)))?;
+        let store = MemoryStore::new();
+        let tree = HashTree::new(HashTreeConfig::new(Arc::new(store)).public());
+        let (cid, _size) = tree
+            .put_stream(AllowStdIo::new(file))
+            .await
+            .map_err(|e| NearbyHashtreeError::Message(format!("failed to hash file: {}", e)))?;
 
-    nhash_encode_full(&NHashData {
-        hash: cid.hash,
-        decrypt_key: cid.key,
+        nhash_encode_full(&NHashData {
+            hash: cid.hash,
+            decrypt_key: cid.key,
+        })
+        .map_err(|e| NearbyHashtreeError::Message(format!("failed to encode nhash: {}", e)))
     })
-    .map_err(|e| NearbyHashtreeError::Message(format!("failed to encode nhash: {}", e)))
 }
 
 uniffi::setup_scaffolding!();
