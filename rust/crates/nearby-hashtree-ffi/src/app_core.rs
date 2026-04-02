@@ -389,6 +389,7 @@ impl CoreState {
                         "Socket connected for unknown connection #{}.",
                         connection_id
                     ));
+                    self.queue(AndroidCommand::CloseSocket { connection_id });
                     return Ok(());
                 };
                 if let Some(connection) = self.connections.get_mut(&connection_id) {
@@ -624,6 +625,22 @@ impl CoreState {
             .get(&peer_instance)
             .and_then(|peer| peer.connection_id);
         if let Some(existing_connection_id) = existing_connection_id {
+            let existing_side = self
+                .connections
+                .get(&existing_connection_id)
+                .and_then(|connection| connection.side.clone());
+            if existing_side.is_none() {
+                self.log(&format!(
+                    "Already preparing a responder data path for {}.",
+                    peer_instance
+                ));
+                self.send_discovery_message(
+                    DiscoveryChannel::Publish,
+                    handle_id,
+                    format!("ready:{}", self.app_instance),
+                );
+                return Ok(());
+            }
             self.log(&format!(
                 "Received duplicate hello from {}. Refreshing the responder data path.",
                 peer_instance
@@ -1244,7 +1261,7 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_hello_refreshes_responder_connection() {
+    fn duplicate_hello_during_responder_setup_is_ignored() {
         let dir = tempfile::tempdir().expect("tempdir");
         let files_dir = dir.path().join("files");
         let cache_dir = dir.path().join("cache");
@@ -1281,7 +1298,26 @@ mod tests {
             handle_id: 1,
             payload: "hello:phone-a".to_string(),
         })
-        .expect("duplicate hello");
+        .expect("duplicate hello during setup");
+        let duplicate_commands = core.take_pending_commands().expect("duplicate commands");
+        assert!(matches!(
+            duplicate_commands.as_slice(),
+            [AndroidCommand::SendDiscoveryMessage { .. }]
+        ));
+
+        core.on_android_event(AndroidEvent::SocketConnected {
+            connection_id: first_connection_id,
+            side: crate::types::SocketSide::Responder,
+        })
+        .expect("socket connected");
+        let _ = core.take_pending_commands().expect("post connect");
+
+        core.on_android_event(AndroidEvent::DiscoveryMessageReceived {
+            channel: crate::types::DiscoveryChannel::Publish,
+            handle_id: 1,
+            payload: "hello:phone-a".to_string(),
+        })
+        .expect("duplicate hello after connect");
         let refresh_commands = core.take_pending_commands().expect("refresh commands");
         assert!(matches!(
             refresh_commands.as_slice(),

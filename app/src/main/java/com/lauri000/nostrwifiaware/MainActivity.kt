@@ -62,6 +62,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
 class MainActivity : Activity() {
@@ -124,6 +125,7 @@ class MainActivity : Activity() {
     private val publishHandles = ConcurrentHashMap<Long, PeerHandle>()
     private val subscribeHandles = ConcurrentHashMap<Long, PeerHandle>()
     private val sockets = ConcurrentHashMap<Long, SocketResource>()
+    private val socketWriters = ConcurrentHashMap<Long, ExecutorService>()
 
     private val responderServerSockets = ConcurrentHashMap<Long, ServerSocket>()
     private val responderNetworkCallbacks = ConcurrentHashMap<Long, ConnectivityManager.NetworkCallback>()
@@ -178,6 +180,8 @@ class MainActivity : Activity() {
     override fun onDestroy() {
         cleanupAndroidResources()
         coreExecutor.shutdownNow()
+        socketWriters.values.forEach { it.shutdownNow() }
+        socketWriters.clear()
         ioExecutor.shutdownNow()
         appCore.close()
         super.onDestroy()
@@ -980,6 +984,7 @@ class MainActivity : Activity() {
             )
         sockets[connectionId]?.socket?.close()
         sockets[connectionId] = resource
+        socketWriters.put(connectionId, Executors.newSingleThreadExecutor())?.shutdownNow()
         dispatchAndroidEvent(AndroidEvent.SocketConnected(connectionId, side))
         ioExecutor.execute { readSocket(resource) }
     }
@@ -1006,7 +1011,8 @@ class MainActivity : Activity() {
     }
 
     private fun executeWriteSocketBytes(command: AndroidCommand.WriteSocketBytes) {
-        ioExecutor.execute {
+        val writer = socketWriters[command.connectionId] ?: return
+        writer.execute {
             val resource = sockets[command.connectionId] ?: return@execute
             try {
                 synchronized(resource.output) {
@@ -1023,6 +1029,7 @@ class MainActivity : Activity() {
     }
 
     private fun closeSocket(connectionId: Long) {
+        socketWriters.remove(connectionId)?.shutdownNow()
         val resource = sockets.remove(connectionId) ?: return
         try {
             resource.input.close()
