@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="620" viewBox="0 0 980 620" role="img" aria-labelledby="title desc">
+  <title id="title">FIPS-0001 fetch and render flow</title>
+  <desc id="desc">Flow diagram showing fetch from peer, wire messages, receiver-side nhash verification, and feed rendering.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#6b7280"/>
+    </marker>
+    <style>
+      .bg { fill: #f8fafc; }
+      .phone { fill: #ffffff; stroke: #cbd5e1; stroke-width: 2; rx: 18; ry: 18; }
+      .stepk { fill: #eff6ff; stroke: #2563eb; stroke-width: 2; rx: 14; ry: 14; }
+      .stepr { fill: #fff7ed; stroke: #c2410c; stroke-width: 2; rx: 14; ry: 14; }
+      .title { font: 700 24px Arial, sans-serif; fill: #0f172a; }
+      .label { font: 700 16px Arial, sans-serif; fill: #0f172a; }
+      .body { font: 14px Arial, sans-serif; fill: #334155; }
+      .mono { font: 13px 'Courier New', monospace; fill: #1e293b; }
+      .line { stroke: #6b7280; stroke-width: 2.5; fill: none; marker-end: url(#arrow); }
+      .dash { stroke: #94a3b8; stroke-width: 2; fill: none; stroke-dasharray: 7 6; marker-end: url(#arrow); }
+    </style>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="980" height="620"/>
+  <text class="title" x="36" y="40">FIPS-0001 Fetch, Verify, And Render Flow</text>
+
+  <rect class="phone" x="40" y="80" width="400" height="500"/>
+  <text class="label" x="62" y="112">Sender phone</text>
+  <text class="body" x="62" y="136">Has local or received photos already stored.</text>
+
+  <rect class="phone" x="540" y="80" width="400" height="500"/>
+  <text class="label" x="562" y="112">Receiver phone</text>
+  <text class="body" x="562" y="136">Requests and displays the nearby feed.</text>
+
+  <rect class="stepr" x="80" y="180" width="320" height="90"/>
+  <text class="label" x="102" y="212">Rust sender core</text>
+  <text class="body" x="102" y="238">builds outbound transfer set</text>
+  <text class="mono" x="102" y="258">Set -&gt; Photo* -&gt; Done</text>
+
+  <rect class="stepk" x="580" y="180" width="320" height="90"/>
+  <text class="label" x="602" y="212">Kotlin receiver UI</text>
+  <text class="body" x="602" y="238">user taps</text>
+  <text class="mono" x="602" y="258">Fetch From Peer</text>
+
+  <rect class="stepk" x="580" y="320" width="320" height="100"/>
+  <text class="label" x="602" y="352">Receiver adapter</text>
+  <text class="body" x="602" y="378">Wi-Fi Aware data path and socket stay live;</text>
+  <text class="body" x="602" y="400">incoming bytes become AndroidEvent::SocketRead</text>
+
+  <rect class="stepr" x="80" y="320" width="320" height="100"/>
+  <text class="label" x="102" y="352">Wire protocol</text>
+  <text class="mono" x="102" y="378">encode_frame(WireMessage)</text>
+  <text class="mono" x="102" y="400">FrameDecoder::push(bytes)</text>
+
+  <rect class="stepr" x="580" y="460" width="320" height="90"/>
+  <text class="label" x="602" y="492">Rust receiver core</text>
+  <text class="body" x="602" y="518">writes tmp file, recomputes nhash,</text>
+  <text class="body" x="602" y="540">stores or marks already present</text>
+
+  <rect class="stepk" x="80" y="460" width="320" height="90"/>
+  <text class="label" x="102" y="492">Kotlin feed renderer</text>
+  <text class="body" x="102" y="518">later decodes</text>
+  <text class="mono" x="102" y="538">file_path -&gt; BitmapFactory -&gt; ImageView</text>
+
+  <path class="dash" d="M 740 270 L 740 320"/>
+  <path class="line" d="M 580 225 L 400 225"/>
+  <text class="body" x="452" y="214">fetch:</text>
+  <path class="line" d="M 400 370 L 580 370"/>
+  <text class="body" x="440" y="359">Set / Photo / Done</text>
+  <path class="line" d="M 580 510 L 400 510"/>
+  <text class="body" x="454" y="499">Ack</text>
+  <path class="dash" d="M 580 550 L 400 550 L 400 505"/>
+  <text class="body" x="420" y="570">FeedItem.file_path returned in ViewState</text>
+</svg>

@@ -21,6 +21,7 @@ Use it like this:
 The crude split-increment plan is documented in [docs/nearby-hashtree-increments.md](/Users/l/Projects/iris/nostr-wifi-aware/docs/nearby-hashtree-increments.md).
 The earlier fuller nearby sync plan is still documented in [docs/nearby-hashtree-demo-plan.md](/Users/l/Projects/iris/nostr-wifi-aware/docs/nearby-hashtree-demo-plan.md) as historical context.
 The older Wi-Fi Aware bandwidth measurements are preserved in [docs/bandwidth-results.md](/Users/l/Projects/iris/nostr-wifi-aware/docs/bandwidth-results.md).
+The current architecture note is documented in [docs/fips-0001-local-instagram-architecture.md](/Users/l/Projects/iris/nostr-wifi-aware/docs/fips-0001-local-instagram-architecture.md).
 
 ### Build
 

@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="520" viewBox="0 0 980 520" role="img" aria-labelledby="title desc">
+  <title id="title">FIPS-0001 capture and store flow</title>
+  <desc id="desc">Flow diagram showing the camera capture path from UI action to local nhash-addressed storage.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#6b7280"/>
+    </marker>
+    <style>
+      .bg { fill: #f8fafc; }
+      .step { fill: #ffffff; stroke: #cbd5e1; stroke-width: 2; rx: 16; ry: 16; }
+      .stepk { fill: #eff6ff; stroke: #2563eb; }
+      .stepr { fill: #fff7ed; stroke: #c2410c; }
+      .title { font: 700 24px Arial, sans-serif; fill: #0f172a; }
+      .label { font: 700 16px Arial, sans-serif; fill: #0f172a; }
+      .body { font: 14px Arial, sans-serif; fill: #334155; }
+      .mono { font: 13px 'Courier New', monospace; fill: #1e293b; }
+      .line { stroke: #6b7280; stroke-width: 2.5; fill: none; marker-end: url(#arrow); }
+    </style>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="980" height="520"/>
+  <text class="title" x="36" y="40">FIPS-0001 Capture And Store Flow</text>
+
+  <rect class="step stepk" x="40" y="90" width="180" height="90"/>
+  <text class="label" x="62" y="122">1. UI tap</text>
+  <text class="body" x="62" y="150">User taps</text>
+  <text class="mono" x="62" y="170">Take Photo</text>
+
+  <rect class="step stepr" x="270" y="90" width="220" height="110"/>
+  <text class="label" x="292" y="122">2. Rust action</text>
+  <text class="mono" x="292" y="150">UiAction::TakePhotoRequested</text>
+  <text class="body" x="292" y="175">allocates temp output path</text>
+
+  <rect class="step stepk" x="540" y="90" width="200" height="110"/>
+  <text class="label" x="562" y="122">3. Camera launch</text>
+  <text class="body" x="562" y="150">Kotlin executes</text>
+  <text class="mono" x="562" y="175">LaunchCameraCapture</text>
+
+  <rect class="step stepk" x="770" y="90" width="170" height="110"/>
+  <text class="label" x="792" y="122">4. Android camera</text>
+  <text class="body" x="792" y="150">writes JPEG bytes to</text>
+  <text class="mono" x="792" y="175">files/demo/tmp/capture</text>
+
+  <rect class="step stepk" x="60" y="280" width="220" height="120"/>
+  <text class="label" x="82" y="312">5. Completion event</text>
+  <text class="mono" x="82" y="340">CameraCaptureCompleted</text>
+  <text class="body" x="82" y="365">temp path returned to Rust</text>
+
+  <rect class="step stepr" x="350" y="260" width="280" height="160"/>
+  <text class="label" x="372" y="292">6. Rust finalization</text>
+  <text class="mono" x="372" y="320">finalize_captured_photo(...)</text>
+  <text class="body" x="372" y="348">- compute nhash via hashtree-core</text>
+  <text class="body" x="372" y="373">- copy to local/&lt;nhash&gt;.jpg</text>
+  <text class="body" x="372" y="398">- update local/manifest.json</text>
+
+  <rect class="step stepr" x="700" y="280" width="220" height="120"/>
+  <text class="label" x="722" y="312">7. View state</text>
+  <text class="body" x="722" y="340">Rust emits new</text>
+  <text class="mono" x="722" y="365">ViewState</text>
+
+  <path class="line" d="M 220 135 L 270 135"/>
+  <path class="line" d="M 490 145 L 540 145"/>
+  <path class="line" d="M 740 145 L 770 145"/>
+  <path class="line" d="M 855 200 L 855 245 L 170 245 L 170 280"/>
+  <path class="line" d="M 280 340 L 350 340"/>
+  <path class="line" d="M 630 340 L 700 340"/>
+</svg>

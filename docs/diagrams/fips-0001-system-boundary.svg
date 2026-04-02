@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="520" viewBox="0 0 980 520" role="img" aria-labelledby="title desc">
+  <title id="title">FIPS-0001 system boundary</title>
+  <desc id="desc">Architecture diagram showing the Kotlin adapter layer, the Rust core layer, Android services, and app-private storage.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#6b7280"/>
+    </marker>
+    <style>
+      .bg { fill: #f8fafc; }
+      .panel { fill: #ffffff; stroke: #cbd5e1; stroke-width: 2; rx: 18; ry: 18; }
+      .kotlin { fill: #eff6ff; stroke: #2563eb; stroke-width: 2; rx: 16; ry: 16; }
+      .rust { fill: #fff7ed; stroke: #c2410c; stroke-width: 2; rx: 16; ry: 16; }
+      .ext { fill: #f1f5f9; stroke: #64748b; stroke-width: 2; rx: 16; ry: 16; }
+      .title { font: 700 24px Arial, sans-serif; fill: #0f172a; }
+      .label { font: 700 16px Arial, sans-serif; fill: #0f172a; }
+      .body { font: 14px Arial, sans-serif; fill: #334155; }
+      .mono { font: 13px 'Courier New', monospace; fill: #1e293b; }
+      .line { stroke: #6b7280; stroke-width: 2.5; fill: none; marker-end: url(#arrow); }
+      .small { font: 12px Arial, sans-serif; fill: #475569; }
+    </style>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="980" height="520"/>
+  <text class="title" x="36" y="40">FIPS-0001 System Boundary</text>
+
+  <rect class="panel" x="30" y="60" width="920" height="430"/>
+
+  <rect class="kotlin" x="60" y="100" width="350" height="330"/>
+  <text class="label" x="82" y="130">Kotlin adapter layer</text>
+  <text class="mono" x="82" y="160">MainActivity.kt</text>
+  <text class="body" x="82" y="195">- camera intent and FileProvider</text>
+  <text class="body" x="82" y="220">- Wi-Fi Aware attach, publish, subscribe</text>
+  <text class="body" x="82" y="245">- ConnectivityManager data path setup</text>
+  <text class="body" x="82" y="270">- TCP socket ownership and IO threads</text>
+  <text class="body" x="82" y="295">- ViewState rendering into Android Views</text>
+  <text class="body" x="82" y="320">- BitmapFactory decode and LruCache</text>
+  <text class="small" x="82" y="360">Owns Android framework handles.</text>
+  <text class="small" x="82" y="380">Does not own app policy.</text>
+
+  <rect class="rust" x="440" y="100" width="300" height="330"/>
+  <text class="label" x="462" y="130">Rust core layer</text>
+  <text class="mono" x="462" y="160">app_core.rs</text>
+  <text class="mono" x="462" y="180">photo_store.rs</text>
+  <text class="mono" x="462" y="200">protocol.rs</text>
+  <text class="mono" x="462" y="220">types.rs / lib.rs</text>
+  <text class="body" x="462" y="255">- UiAction, AndroidEvent, AndroidCommand</text>
+  <text class="body" x="462" y="280">- peer orchestration and transfer state</text>
+  <text class="body" x="462" y="305">- manifest writes and duplicate detection</text>
+  <text class="body" x="462" y="330">- nhash compute and verification</text>
+  <text class="body" x="462" y="355">- feed ordering and logs</text>
+  <text class="small" x="462" y="390">Owns application state and storage policy.</text>
+
+  <rect class="ext" x="770" y="100" width="150" height="140"/>
+  <text class="label" x="792" y="130">Android</text>
+  <text class="body" x="792" y="160">Wi-Fi Aware</text>
+  <text class="body" x="792" y="185">Connectivity</text>
+  <text class="body" x="792" y="210">Camera intent</text>
+
+  <rect class="ext" x="770" y="270" width="150" height="160"/>
+  <text class="label" x="792" y="300">App storage</text>
+  <text class="body" x="792" y="330">files/demo/local</text>
+  <text class="body" x="792" y="355">files/demo/received</text>
+  <text class="body" x="792" y="380">files/demo/tmp</text>
+  <text class="body" x="792" y="405">manifest.json</text>
+
+  <path class="line" d="M 410 215 L 440 215"/>
+  <text class="small" x="418" y="205">UniFFI</text>
+
+  <path class="line" d="M 740 170 L 770 170"/>
+  <text class="small" x="720" y="160">commands</text>
+
+  <path class="line" d="M 770 350 L 740 350"/>
+  <text class="small" x="688" y="340">file paths and bytes</text>
+</svg>
