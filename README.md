@@ -6,16 +6,16 @@ The Wi-Fi Aware service type is `_nostrwifiaware._tcp`, using DNS-SD service-typ
 
 ## Current Prototype
 
-The codebase currently contains a photo-first peer-mode demo: a small Android app with two pages, `Feed` and `Settings`. `Feed` is the main consumer surface: it shows local photos plus nearby photos in one timeline, gives you a `Take Photo` button, and gives you a `Broadcast Photos` button. `Settings` holds nearby mode controls, reset actions, and the proof log. The app does not browse the gallery.
+The codebase currently contains a photo-first peer-mode demo: a small Android app with two pages, `Feed` and `Settings`. `Feed` is the main consumer surface: it shows local photos plus nearby photos in one timeline and gives you a `Take Photo` button. `Settings` holds the single `Connect` / `Disconnect` toggle, reset actions, and the proof log. The app does not browse the gallery.
 
 Use it like this:
 
 1. Open the app on both phones.
 2. On one phone, tap `Take Photo` and capture one or more photos.
-3. Open `Settings` on both phones and tap `Start Nearby`.
+3. Open `Settings` on both phones and tap `Connect`.
 4. Wait for the status pills to show `Nearby on` and `1 nearby · 1 linked`. The app decides internally which phone initiates the data path.
-5. Go back to `Feed` on the sender and tap `Broadcast Photos`.
-6. Verify that the receiver accepts the photos automatically, logs receiver-side `nhash` verification, and stores them without prompting.
+5. Verify that the receiver accepts the sender's current feed automatically, logs receiver-side verification, and stores it without prompting.
+6. Take another photo on the sender and verify that it syncs automatically after capture.
 7. Open `Feed` on the receiver to confirm the nearby photos are present.
 
 The crude split-increment plan is documented in [docs/nearby-hashtree-increments.md](/Users/l/Projects/iris/nostr-wifi-aware/docs/nearby-hashtree-increments.md).
@@ -104,7 +104,7 @@ scripts/stay-awake.sh status
 
 ### Current State On This Machine
 
-As of April 3, 2026, the current increment built successfully and was verified end to end on two USB-connected Pixel 9a devices. One phone held a local photo collection, the other was cleared to zero photos, both phones entered nearby mode from `Settings`, and the sender tapped `Broadcast Photos` on `Feed`. The receiver then accepted the announced feed root automatically, requested only its missing blocks, verified the remote root, merged the new photo entries into its own feed root, and persisted the result under `files/hashtree/blocks` plus `files/hashtree/roots/local_feed_root.txt`.
+As of April 3, 2026, the current increment built successfully and was verified end to end on two USB-connected Pixel 9a devices. One phone held a local photo collection, the other was cleared to zero photos, both phones tapped `Connect` in `Settings`, and the receiver then accepted the sender's full feed automatically. After that, a newly captured photo on the sender was stored immediately in the local hashtree feed and synced automatically to the linked peer. The receiver requested only missing blocks, verified the remote root, merged the new photo entries into its own feed root, and persisted the result under `files/hashtree/blocks` plus `files/hashtree/roots/local_feed_root.txt`.
 
 ## Current Shape
 
@@ -119,7 +119,7 @@ The current app is intentionally narrow:
 
 ## Next Likely Steps
 
-- make multi-peer broadcasting more explicit in the UI when several nearby phones are linked at once
-- add clearer repeated-broadcast dedupe/no-op reporting in the UI
+- make multi-peer connected-peer status more explicit in the UI when several nearby phones are linked at once
+- add clearer repeated-auto-sync dedupe/no-op reporting in the UI
 - add trust rules above nearby sync
 - move from this demo toward a richer local social photo app

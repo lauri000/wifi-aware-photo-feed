@@ -110,9 +110,7 @@ class MainActivity : Activity() {
     private lateinit var configPage: LinearLayout
     private lateinit var feedPage: LinearLayout
     private lateinit var takePhotoButton: Button
-    private lateinit var startNearbyButton: Button
-    private lateinit var stopButton: Button
-    private lateinit var shareNowButton: Button
+    private lateinit var nearbyToggleButton: Button
     private lateinit var clearDataButton: Button
     private lateinit var clearLogButton: Button
     private lateinit var feedContainer: LinearLayout
@@ -272,14 +270,8 @@ class MainActivity : Activity() {
         takePhotoButton = buildAccentButton("Take Photo", "#f97316", "#fb7185").apply {
             setOnClickListener { dispatchUiAction(UiAction.TakePhotoRequested) }
         }
-        startNearbyButton = buildMutedButton("Start Nearby").apply {
-            setOnClickListener { dispatchUiAction(UiAction.StartNearbyRequested) }
-        }
-        stopButton = buildMutedButton("Stop").apply {
-            setOnClickListener { dispatchUiAction(UiAction.StopRequested) }
-        }
-        shareNowButton = buildAccentButton("Broadcast Photos", "#0ea5e9", "#22c55e").apply {
-            setOnClickListener { dispatchUiAction(UiAction.ShareAvailablePhotosRequested) }
+        nearbyToggleButton = buildAccentButton("Connect", "#0ea5e9", "#22c55e").apply {
+            setOnClickListener { dispatchUiAction(UiAction.ToggleNearbyRequested) }
         }
         clearDataButton = buildMutedButton("Clear Demo Data").apply {
             setOnClickListener { dispatchUiAction(UiAction.ClearDemoDataRequested) }
@@ -315,7 +307,7 @@ class MainActivity : Activity() {
                                 )
                                 addView(
                                     TextView(this@MainActivity).apply {
-                                        text = "Take photos, keep nearby mode on, and broadcast your collection to every nearby phone that links over Wi-Fi Aware."
+                                        text = "Take photos, keep nearby mode on, and linked phones sync your feed automatically over Wi-Fi Aware."
                                         textSize = 15f
                                         setTextColor(parseColor("#d1d8e9"))
                                         setPadding(0, dp(8), dp(12), 0)
@@ -381,7 +373,7 @@ class MainActivity : Activity() {
                         addView(nearbySummarySettingsView)
                         addView(
                             TextView(this@MainActivity).apply {
-                                text = "Nearby phones receive broadcasts immediately and deduplicate by nhash."
+                                text = "Linked phones sync the full feed on connect, and new photos sync right after capture."
                                 textSize = 12f
                                 setTextColor(parseColor("#7f8da7"))
                                 setPadding(0, dp(8), 0, 0)
@@ -392,7 +384,15 @@ class MainActivity : Activity() {
                 addView(spacer(dp(14)))
                 addView(
                     miniCard(title = "Nearby Mode", accent = parseColor("#0ea5e9")).apply {
-                        addView(buttonRow(startNearbyButton, stopButton))
+                        addView(buttonRow(nearbyToggleButton))
+                        addView(spacer(dp(10)))
+                        addView(
+                            TextView(this@MainActivity).apply {
+                                text = "Connect keeps the nearby link active. Every linked peer gets the current feed automatically, and each new photo syncs as soon as it is stored."
+                                textSize = 12f
+                                setTextColor(parseColor("#7f8da7"))
+                            },
+                        )
                     },
                 )
                 addView(spacer(dp(10)))
@@ -431,7 +431,7 @@ class MainActivity : Activity() {
                 addView(sectionTitle("Photo Feed"))
                 addView(
                     TextView(this@MainActivity).apply {
-                        text = "One timeline. Your photos and nearby broadcasts live together in newest-first order."
+                        text = "One timeline. Your photos and nearby photos live together in newest-first order."
                         textSize = 13f
                         setTextColor(parseColor("#9fb2ce"))
                         setPadding(0, dp(6), 0, dp(12))
@@ -439,13 +439,13 @@ class MainActivity : Activity() {
                 )
                 addView(
                     miniCard(title = "Quick Actions", accent = parseColor("#ec4899")).apply {
-                        addView(buttonRow(takePhotoButton, shareNowButton))
+                        addView(buttonRow(takePhotoButton))
                         addView(spacer(dp(10)))
                         addView(localSummaryFeedView.apply { setPadding(0, 0, 0, dp(4)) })
                         addView(nearbySummaryFeedView)
                         addView(
                             TextView(this@MainActivity).apply {
-                                text = "Once nearby mode is on in Settings, broadcast pushes your current collection to nearby phones automatically."
+                                text = "As soon as nearby mode is connected, linked phones receive the current feed automatically. New photos sync right after capture."
                                 textSize = 13f
                                 setTextColor(parseColor("#d7def0"))
                                 setPadding(0, dp(10), 0, 0)
@@ -552,6 +552,12 @@ class MainActivity : Activity() {
         nearbySummarySettingsView.text = viewState.nearbySummaryText
 
         val controls = viewState.controlsEnabled
+        nearbyToggleButton.text =
+            when {
+                viewState.statusText.contains("Starting nearby") -> "Connecting..."
+                viewState.modeText.contains("Nearby") -> "Disconnect"
+                else -> "Connect"
+            }
         applyControls(controls)
         applyPage(viewState.page)
         applyFeed(viewState.feedItems)
@@ -560,9 +566,7 @@ class MainActivity : Activity() {
 
     private fun applyControls(controls: ControlsEnabled) {
         setButtonState(takePhotoButton, controls.takePhoto)
-        setButtonState(startNearbyButton, controls.startNearby)
-        setButtonState(stopButton, controls.stop)
-        setButtonState(shareNowButton, controls.shareAvailablePhotos)
+        setButtonState(nearbyToggleButton, controls.toggleNearby)
         setButtonState(clearDataButton, controls.clearDemoData)
         setButtonState(clearLogButton, controls.clearLog)
     }
@@ -578,7 +582,7 @@ class MainActivity : Activity() {
             renderedFeedSignature = ""
             feedContainer.removeAllViews()
             feedEmptyView.visibility = View.VISIBLE
-            feedEmptyView.text = "No photos yet. Take a photo, then broadcast it to nearby phones."
+            feedEmptyView.text = "No photos yet. Take a photo and it will be stored in your local feed immediately."
             return
         }
 

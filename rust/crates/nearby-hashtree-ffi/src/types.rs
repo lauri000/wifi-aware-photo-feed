@@ -19,9 +19,7 @@ pub enum SocketSide {
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
 pub enum UiAction {
     TakePhotoRequested,
-    StartNearbyRequested,
-    StopRequested,
-    ShareAvailablePhotosRequested,
+    ToggleNearbyRequested,
     ClearDemoDataRequested,
     SwitchPage(UiPage),
     ClearLogRequested,
@@ -121,9 +119,7 @@ pub enum AndroidCommand {
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct ControlsEnabled {
     pub take_photo: bool,
-    pub start_nearby: bool,
-    pub stop: bool,
-    pub share_available_photos: bool,
+    pub toggle_nearby: bool,
     pub clear_demo_data: bool,
     pub clear_log: bool,
 }

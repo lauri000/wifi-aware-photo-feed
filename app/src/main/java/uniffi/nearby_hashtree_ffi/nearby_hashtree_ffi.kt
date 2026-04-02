@@ -1479,9 +1479,7 @@ public object FfiConverterTypeAppCore: FfiConverter<AppCore, Pointer> {
 
 data class ControlsEnabled (
     var `takePhoto`: kotlin.Boolean, 
-    var `startNearby`: kotlin.Boolean, 
-    var `stop`: kotlin.Boolean, 
-    var `shareAvailablePhotos`: kotlin.Boolean, 
+    var `toggleNearby`: kotlin.Boolean, 
     var `clearDemoData`: kotlin.Boolean, 
     var `clearLog`: kotlin.Boolean
 ) {
@@ -1499,25 +1497,19 @@ public object FfiConverterTypeControlsEnabled: FfiConverterRustBuffer<ControlsEn
             FfiConverterBoolean.read(buf),
             FfiConverterBoolean.read(buf),
             FfiConverterBoolean.read(buf),
-            FfiConverterBoolean.read(buf),
-            FfiConverterBoolean.read(buf),
         )
     }
 
     override fun allocationSize(value: ControlsEnabled) = (
             FfiConverterBoolean.allocationSize(value.`takePhoto`) +
-            FfiConverterBoolean.allocationSize(value.`startNearby`) +
-            FfiConverterBoolean.allocationSize(value.`stop`) +
-            FfiConverterBoolean.allocationSize(value.`shareAvailablePhotos`) +
+            FfiConverterBoolean.allocationSize(value.`toggleNearby`) +
             FfiConverterBoolean.allocationSize(value.`clearDemoData`) +
             FfiConverterBoolean.allocationSize(value.`clearLog`)
     )
 
     override fun write(value: ControlsEnabled, buf: ByteBuffer) {
             FfiConverterBoolean.write(value.`takePhoto`, buf)
-            FfiConverterBoolean.write(value.`startNearby`, buf)
-            FfiConverterBoolean.write(value.`stop`, buf)
-            FfiConverterBoolean.write(value.`shareAvailablePhotos`, buf)
+            FfiConverterBoolean.write(value.`toggleNearby`, buf)
             FfiConverterBoolean.write(value.`clearDemoData`, buf)
             FfiConverterBoolean.write(value.`clearLog`, buf)
     }
@@ -2545,13 +2537,7 @@ sealed class UiAction {
     object TakePhotoRequested : UiAction()
     
     
-    object StartNearbyRequested : UiAction()
-    
-    
-    object StopRequested : UiAction()
-    
-    
-    object ShareAvailablePhotosRequested : UiAction()
+    object ToggleNearbyRequested : UiAction()
     
     
     object ClearDemoDataRequested : UiAction()
@@ -2577,14 +2563,12 @@ public object FfiConverterTypeUiAction : FfiConverterRustBuffer<UiAction>{
     override fun read(buf: ByteBuffer): UiAction {
         return when(buf.getInt()) {
             1 -> UiAction.TakePhotoRequested
-            2 -> UiAction.StartNearbyRequested
-            3 -> UiAction.StopRequested
-            4 -> UiAction.ShareAvailablePhotosRequested
-            5 -> UiAction.ClearDemoDataRequested
-            6 -> UiAction.SwitchPage(
+            2 -> UiAction.ToggleNearbyRequested
+            3 -> UiAction.ClearDemoDataRequested
+            4 -> UiAction.SwitchPage(
                 FfiConverterTypeUiPage.read(buf),
                 )
-            7 -> UiAction.ClearLogRequested
+            5 -> UiAction.ClearLogRequested
             else -> throw RuntimeException("invalid enum value, something is very wrong!!")
         }
     }
@@ -2596,19 +2580,7 @@ public object FfiConverterTypeUiAction : FfiConverterRustBuffer<UiAction>{
                 4UL
             )
         }
-        is UiAction.StartNearbyRequested -> {
-            // Add the size for the Int that specifies the variant plus the size needed for all fields
-            (
-                4UL
-            )
-        }
-        is UiAction.StopRequested -> {
-            // Add the size for the Int that specifies the variant plus the size needed for all fields
-            (
-                4UL
-            )
-        }
-        is UiAction.ShareAvailablePhotosRequested -> {
+        is UiAction.ToggleNearbyRequested -> {
             // Add the size for the Int that specifies the variant plus the size needed for all fields
             (
                 4UL
@@ -2641,29 +2613,21 @@ public object FfiConverterTypeUiAction : FfiConverterRustBuffer<UiAction>{
                 buf.putInt(1)
                 Unit
             }
-            is UiAction.StartNearbyRequested -> {
+            is UiAction.ToggleNearbyRequested -> {
                 buf.putInt(2)
                 Unit
             }
-            is UiAction.StopRequested -> {
+            is UiAction.ClearDemoDataRequested -> {
                 buf.putInt(3)
                 Unit
             }
-            is UiAction.ShareAvailablePhotosRequested -> {
-                buf.putInt(4)
-                Unit
-            }
-            is UiAction.ClearDemoDataRequested -> {
-                buf.putInt(5)
-                Unit
-            }
             is UiAction.SwitchPage -> {
-                buf.putInt(6)
+                buf.putInt(4)
                 FfiConverterTypeUiPage.write(value.v1, buf)
                 Unit
             }
             is UiAction.ClearLogRequested -> {
-                buf.putInt(7)
+                buf.putInt(5)
                 Unit
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }

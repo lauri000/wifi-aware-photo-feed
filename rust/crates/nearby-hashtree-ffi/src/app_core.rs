@@ -29,7 +29,6 @@ struct PeerState {
     initiator_requested: bool,
     socket_connect_requested: bool,
     hello_sent: bool,
-    pending_broadcast: bool,
 }
 
 impl PeerState {
@@ -42,7 +41,6 @@ impl PeerState {
             initiator_requested: false,
             socket_connect_requested: false,
             hello_sent: false,
-            pending_broadcast: false,
         }
     }
 }
@@ -158,26 +156,20 @@ impl CoreState {
                 let output_path = self.photo_store.create_capture_temp_path()?;
                 self.queue(AndroidCommand::LaunchCameraCapture { output_path });
             }
-            UiAction::StartNearbyRequested => {
-                if self.role != Role::Idle {
-                    self.log("Nearby mode is already running.");
-                    return Ok(());
+            UiAction::ToggleNearbyRequested => {
+                if self.role == Role::Idle {
+                    self.pending_start_nearby = true;
+                    self.status_text = "Starting nearby".to_string();
+                    self.link_text = "Requesting permissions".to_string();
+                    self.log(&format!("Attaching as Nearby ({})", self.app_instance));
+                    self.queue(AndroidCommand::RequestPermissions);
+                } else {
+                    self.stop("Disconnected from nearby mode");
                 }
-                self.pending_start_nearby = true;
-                self.status_text = "Starting nearby".to_string();
-                self.link_text = "Requesting permissions".to_string();
-                self.log(&format!("Attaching as Nearby ({})", self.app_instance));
-                self.queue(AndroidCommand::RequestPermissions);
-            }
-            UiAction::StopRequested => {
-                self.stop("Stopped nearby mode");
-            }
-            UiAction::ShareAvailablePhotosRequested => {
-                self.start_or_arm_broadcast("broadcast button")?;
             }
             UiAction::ClearDemoDataRequested => {
                 if self.role != Role::Idle {
-                    self.stop("Stopped nearby mode for data clear");
+                    self.stop("Disconnected from nearby mode for data clear");
                 }
                 self.photo_store.clear_all()?;
                 self.log("Cleared local hashtree roots, blocks, and render cache.");
@@ -214,11 +206,12 @@ impl CoreState {
                 let photo = self.photo_store.finalize_captured_photo(&temp_path)?;
                 self.page = UiPage::Feed;
                 self.log(&format!(
-                    "Captured photo {} cid={} size={}",
+                    "Captured photo {} cid={} size={}. Stored immediately in the local hashtree feed.",
                     photo.id,
                     short_cid(&photo.photo_cid),
                     format_byte_count(photo.size_bytes)
                 ));
+                self.sync_current_root_to_all_known_peers("new photo captured")?;
             }
             AndroidEvent::CameraCaptureCancelled => {
                 self.log("Photo capture canceled.");
@@ -414,7 +407,7 @@ impl CoreState {
                     peer_instance
                 ));
                 self.refresh_link_text();
-                self.maybe_start_broadcast_for_peer(&peer_instance, "peer socket connected")?;
+                self.sync_current_root_to_peer(&peer_instance, "peer socket connected")?;
             }
             AndroidEvent::SocketClosed { connection_id } => {
                 self.inbound_decoders.remove(&connection_id);
@@ -470,7 +463,6 @@ impl CoreState {
         let storage_bytes = self.photo_store.total_storage_bytes()?;
         let connected_peers = self.connected_peer_count();
         let any_transfer = self.any_transfer_in_flight();
-        let has_shareable = self.photo_store.has_any_photos()?;
 
         Ok(ViewState {
             page: self.page.clone(),
@@ -492,9 +484,7 @@ impl CoreState {
             ),
             controls_enabled: ControlsEnabled {
                 take_photo: !any_transfer,
-                start_nearby: self.role == Role::Idle,
-                stop: self.role != Role::Idle,
-                share_available_photos: self.role == Role::Peer && has_shareable,
+                toggle_nearby: !any_transfer && !self.pending_start_nearby,
                 clear_demo_data: !any_transfer,
                 clear_log: true,
             },
@@ -629,17 +619,20 @@ impl CoreState {
         peer_instance: String,
         handle_id: i64,
     ) -> Result<(), NearbyHashtreeError> {
-        let already_connected = self
+        let existing_connection_id = self
             .peers
             .get(&peer_instance)
-            .map(|peer| peer.connection_id.is_some())
-            .unwrap_or(false);
-        if already_connected {
+            .and_then(|peer| peer.connection_id);
+        if let Some(existing_connection_id) = existing_connection_id {
             self.log(&format!(
-                "Already paired with {}. Ignoring duplicate hello.",
+                "Received duplicate hello from {}. Refreshing the responder data path.",
                 peer_instance
             ));
-            return Ok(());
+            self.inbound_decoders.remove(&existing_connection_id);
+            self.connections.remove(&existing_connection_id);
+            self.queue(AndroidCommand::CloseSocket {
+                connection_id: existing_connection_id,
+            });
         }
 
         let connection_id = self.next_connection_id;
@@ -752,72 +745,47 @@ impl CoreState {
         });
     }
 
-    fn start_or_arm_broadcast(
+    fn sync_current_root_to_all_known_peers(
         &mut self,
         trigger: &str,
     ) -> Result<(), NearbyHashtreeError> {
         if self.role != Role::Peer {
-            self.log("Start Nearby first.");
+            self.log("Nearby mode is off. Local photo was stored, but no peers are connected yet.");
             return Ok(());
         }
 
         if !self.photo_store.has_any_photos()? {
-            self.log("Take a photo first, then broadcast it.");
+            self.log("No local photos to sync yet.");
             return Ok(());
         }
 
-        self.log(&format!(
-            "Broadcast requested from {}. Nearby phones will auto-accept blocks, verify roots, and deduplicate locally.",
-            trigger
-        ));
-        self.broadcast_to_all_known_peers(trigger)
-    }
-
-    fn broadcast_to_all_known_peers(
-        &mut self,
-        trigger: &str,
-    ) -> Result<(), NearbyHashtreeError> {
         let peer_instances: Vec<String> = self.peers.keys().cloned().collect();
         if peer_instances.is_empty() {
-            self.log("No nearby peers discovered yet. Broadcast will start as peers appear.");
+            self.log("No nearby peers discovered yet. The photo stays stored locally until a peer links.");
             return Ok(());
         }
 
         let mut started_count = 0usize;
         for peer_instance in peer_instances {
-            if let Some(peer) = self.peers.get_mut(&peer_instance) {
-                peer.pending_broadcast = true;
-            }
-            started_count += self.maybe_start_broadcast_for_peer(&peer_instance, trigger)? as usize;
+            started_count += self.sync_current_root_to_peer(&peer_instance, trigger)? as usize;
             self.ensure_data_path_for_peer(&peer_instance);
         }
 
         if started_count > 0 {
             self.log(&format!(
-                "Started root broadcast to {} nearby {}.",
+                "Started automatic sync to {} nearby {}.",
                 started_count,
                 if started_count == 1 { "phone" } else { "phones" }
             ));
-        } else {
-            self.log("Broadcast is armed. Nearby peers will receive the current root as each Wi-Fi Aware socket connects.");
         }
         Ok(())
     }
 
-    fn maybe_start_broadcast_for_peer(
+    fn sync_current_root_to_peer(
         &mut self,
         peer_instance: &str,
         trigger: &str,
     ) -> Result<bool, NearbyHashtreeError> {
-        let should_broadcast = self
-            .peers
-            .get(peer_instance)
-            .map(|peer| peer.pending_broadcast)
-            .unwrap_or(false);
-        if !should_broadcast {
-            return Ok(false);
-        }
-
         let connection_id = self
             .peers
             .get(peer_instance)
@@ -851,7 +819,7 @@ impl CoreState {
         trigger: &str,
     ) -> Result<(), NearbyHashtreeError> {
         let Some(root_nhash) = self.photo_store.current_root()? else {
-            self.log("Take a photo first, then broadcast it.");
+            self.log("No local feed root yet. Take a photo first.");
             return Ok(());
         };
         let block_hashes = self.photo_store.collect_root_hashes(&root_nhash)?;
@@ -861,11 +829,8 @@ impl CoreState {
         };
         connection.active_sync_root = Some(root_nhash.clone());
         let peer_instance = connection.peer_instance.clone();
-        if let Some(peer) = self.peers.get_mut(&peer_instance) {
-            peer.pending_broadcast = false;
-        }
         self.log(&format!(
-            "Announcing feed root {} ({} photos, {} blocks) to {} over Wi-Fi Aware ({})",
+            "Syncing feed root {} ({} photos, {} blocks) to {} over Wi-Fi Aware ({})",
             short_cid(&root_nhash),
             entry_count,
             block_hashes.len(),
@@ -1092,7 +1057,7 @@ mod tests {
             "phone-a".to_string(),
         )
         .expect("core");
-        core.on_ui_action(UiAction::StartNearbyRequested).expect("start nearby");
+        core.on_ui_action(UiAction::ToggleNearbyRequested).expect("start nearby");
         let commands = core.take_pending_commands().expect("commands");
         assert!(matches!(commands.as_slice(), [AndroidCommand::RequestPermissions]));
     }
@@ -1110,7 +1075,7 @@ mod tests {
             "phone-a".to_string(),
         )
         .expect("core");
-        core.on_ui_action(UiAction::StartNearbyRequested).expect("start nearby");
+        core.on_ui_action(UiAction::ToggleNearbyRequested).expect("start nearby");
         let _ = core.take_pending_commands().expect("initial commands");
         core.on_android_event(AndroidEvent::PermissionsGranted)
             .expect("permissions granted");
@@ -1159,7 +1124,7 @@ mod tests {
     }
 
     #[test]
-    fn broadcast_to_connected_peer_queues_root_announce() {
+    fn connected_peer_auto_syncs_current_root() {
         let dir = tempfile::tempdir().expect("tempdir");
         let files_dir = dir.path().join("files");
         let cache_dir = dir.path().join("cache");
@@ -1204,11 +1169,7 @@ mod tests {
             side: crate::types::SocketSide::Initiator,
         })
         .expect("socket connected");
-        let _ = core.take_pending_commands().expect("post connect");
-
-        core.on_ui_action(UiAction::ShareAvailablePhotosRequested)
-            .expect("broadcast");
-        let commands = core.take_pending_commands().expect("broadcast commands");
+        let commands = core.take_pending_commands().expect("post connect");
         assert_eq!(commands.len(), 1);
         let message = match &commands[0] {
             AndroidCommand::WriteSocketBytes { bytes, .. } => {
@@ -1218,5 +1179,117 @@ mod tests {
             other => panic!("unexpected command: {other:?}"),
         };
         assert!(matches!(message, WireMessage::RootAnnounce { .. }));
+    }
+
+    #[test]
+    fn new_capture_auto_syncs_to_connected_peer() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let files_dir = dir.path().join("files");
+        let cache_dir = dir.path().join("cache");
+        std::fs::create_dir_all(&files_dir).expect("files dir");
+        std::fs::create_dir_all(&cache_dir).expect("cache dir");
+        let core = AppCore::new(
+            files_dir.display().to_string(),
+            cache_dir.display().to_string(),
+            "phone-a".to_string(),
+        )
+        .expect("core");
+
+        core.on_android_event(AndroidEvent::AwareAttachSucceeded)
+            .expect("attach success");
+        let _ = core.take_pending_commands().expect("attach commands");
+
+        core.on_android_event(AndroidEvent::PeerDiscovered {
+            handle_id: 1,
+            instance: Some("phone-b".to_string()),
+        })
+        .expect("peer discovered");
+        let _ = core.take_pending_commands().expect("hello command");
+        core.on_android_event(AndroidEvent::DiscoveryMessageReceived {
+            channel: crate::types::DiscoveryChannel::Subscribe,
+            handle_id: 1,
+            payload: "ready:phone-b".to_string(),
+        })
+        .expect("ready");
+        let commands = core.take_pending_commands().expect("open initiator");
+        let connection_id = match commands.as_slice() {
+            [AndroidCommand::OpenInitiator { connection_id, .. }] => *connection_id,
+            other => panic!("unexpected commands: {other:?}"),
+        };
+
+        core.on_android_event(AndroidEvent::SocketConnected {
+            connection_id,
+            side: crate::types::SocketSide::Initiator,
+        })
+        .expect("socket connected");
+        let _ = core.take_pending_commands().expect("initial auto sync with empty store");
+
+        let temp = cache_dir.join("capture.jpg");
+        std::fs::write(&temp, b"nearby-photo").expect("write temp");
+        core.on_android_event(AndroidEvent::CameraCaptureCompleted {
+            temp_path: temp.display().to_string(),
+        })
+        .expect("capture completed");
+
+        let commands = core.take_pending_commands().expect("capture sync commands");
+        assert_eq!(commands.len(), 1);
+        let message = match &commands[0] {
+            AndroidCommand::WriteSocketBytes { bytes, .. } => {
+                let mut decoder = FrameDecoder::default();
+                decoder.push(bytes).expect("decode").remove(0)
+            }
+            other => panic!("unexpected command: {other:?}"),
+        };
+        assert!(matches!(message, WireMessage::RootAnnounce { .. }));
+    }
+
+    #[test]
+    fn duplicate_hello_refreshes_responder_connection() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let files_dir = dir.path().join("files");
+        let cache_dir = dir.path().join("cache");
+        std::fs::create_dir_all(&files_dir).expect("files dir");
+        std::fs::create_dir_all(&cache_dir).expect("cache dir");
+        let core = AppCore::new(
+            files_dir.display().to_string(),
+            cache_dir.display().to_string(),
+            "phone-b".to_string(),
+        )
+        .expect("core");
+
+        core.on_android_event(AndroidEvent::AwareAttachSucceeded)
+            .expect("attach success");
+        let _ = core.take_pending_commands().expect("attach commands");
+
+        core.on_android_event(AndroidEvent::DiscoveryMessageReceived {
+            channel: crate::types::DiscoveryChannel::Publish,
+            handle_id: 1,
+            payload: "hello:phone-a".to_string(),
+        })
+        .expect("first hello");
+        let first_commands = core.take_pending_commands().expect("first responder commands");
+        let first_connection_id = match first_commands.as_slice() {
+            [
+                AndroidCommand::OpenResponder { connection_id, .. },
+                AndroidCommand::SendDiscoveryMessage { .. },
+            ] => *connection_id,
+            other => panic!("unexpected commands: {other:?}"),
+        };
+
+        core.on_android_event(AndroidEvent::DiscoveryMessageReceived {
+            channel: crate::types::DiscoveryChannel::Publish,
+            handle_id: 1,
+            payload: "hello:phone-a".to_string(),
+        })
+        .expect("duplicate hello");
+        let refresh_commands = core.take_pending_commands().expect("refresh commands");
+        assert!(matches!(
+            refresh_commands.as_slice(),
+            [
+                AndroidCommand::CloseSocket { connection_id, .. },
+                AndroidCommand::OpenResponder { .. },
+                AndroidCommand::SendDiscoveryMessage { .. },
+            ] if *connection_id == first_connection_id
+        ));
     }
 }
