@@ -15,6 +15,8 @@ Use it like this:
 5. Tap `1 Mbit`, `10 Mbit`, or `100 Mbit` on the client.
 6. Read the measured throughput in Mbit/s from both logs.
 
+Measured results from the first real-device run are documented in [docs/bandwidth-results.md](/Users/l/Projects/iris/nostr-wifi-aware/docs/bandwidth-results.md).
+
 ### Build
 
 ```bash
