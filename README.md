@@ -54,6 +54,18 @@ scripts/dev-phone.sh install
 scripts/dev-phone.sh run
 ```
 
+Keep all connected test phones awake while plugged in:
+
+```bash
+scripts/stay-awake.sh on
+```
+
+Check the current stay-awake setting on all connected phones:
+
+```bash
+scripts/stay-awake.sh status
+```
+
 ### What To Expect
 
 - The app package is `com.lauri000.nostrwifiaware`.
