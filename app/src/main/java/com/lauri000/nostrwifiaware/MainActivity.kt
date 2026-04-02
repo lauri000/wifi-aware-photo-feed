@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Typeface
@@ -30,6 +31,7 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
 import android.util.Log
+import android.util.LruCache
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -68,6 +70,7 @@ class MainActivity : Activity() {
         private const val cameraRequestCode = 2001
         private const val logTag = "NostrWifiAware"
         private const val ioBufferSize = 64 * 1024
+        private const val renderDebounceMs = 48L
     }
 
     private data class CaptureRequest(
@@ -85,8 +88,11 @@ class MainActivity : Activity() {
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val ioExecutor = Executors.newCachedThreadPool()
+    private val socketWriteExecutor = Executors.newSingleThreadExecutor()
     private val coreExecutor = Executors.newSingleThreadExecutor()
     private val appInstance = "${Build.MODEL}-${System.currentTimeMillis().toString(16).takeLast(6)}"
+    private val renderStateLock = Any()
+    private val previewBitmapCache = object : LruCache<String, Bitmap>(24) {}
 
     private lateinit var wifiAwareManager: WifiAwareManager
     private lateinit var connectivityManager: ConnectivityManager
@@ -126,7 +132,40 @@ class MainActivity : Activity() {
     private var initiatorNetworkCallback: ConnectivityManager.NetworkCallback? = null
     private var initiatorNetwork: Network? = null
 
+    private var pendingViewState: ViewState? = null
+    private var renderScheduled = false
     private var renderedLogCount = 0
+    private var renderedFeedSignature = ""
+
+    private val renderRunnable: Runnable =
+        object : Runnable {
+            override fun run() {
+                val viewState =
+                    synchronized(renderStateLock) {
+                        val next = pendingViewState
+                        pendingViewState = null
+                        next
+                    }
+
+                if (viewState != null) {
+                    renderView(viewState)
+                }
+
+                val shouldContinue =
+                    synchronized(renderStateLock) {
+                        if (pendingViewState == null) {
+                            renderScheduled = false
+                            false
+                        } else {
+                            true
+                        }
+                    }
+
+                if (shouldContinue) {
+                    mainHandler.postDelayed(this, renderDebounceMs)
+                }
+            }
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -142,6 +181,7 @@ class MainActivity : Activity() {
         cleanupAndroidResources()
         coreExecutor.shutdownNow()
         ioExecutor.shutdownNow()
+        socketWriteExecutor.shutdownNow()
         appCore.close()
         super.onDestroy()
     }
@@ -470,8 +510,18 @@ class MainActivity : Activity() {
 
     private fun publishViewState() {
         val viewState = appCore.currentViewState()
-        mainHandler.post {
-            renderView(viewState)
+        val shouldSchedule =
+            synchronized(renderStateLock) {
+                pendingViewState = viewState
+                if (renderScheduled) {
+                    false
+                } else {
+                    renderScheduled = true
+                    true
+                }
+            }
+        if (shouldSchedule) {
+            mainHandler.postDelayed(renderRunnable, renderDebounceMs)
         }
     }
 
@@ -508,13 +558,25 @@ class MainActivity : Activity() {
     }
 
     private fun applyFeed(feedItems: List<FeedItem>) {
-        feedContainer.removeAllViews()
         if (feedItems.isEmpty()) {
+            renderedFeedSignature = ""
+            feedContainer.removeAllViews()
             feedEmptyView.visibility = View.VISIBLE
             feedEmptyView.text = "No photos yet. Take a photo on Config, or fetch a nearby feed."
             return
         }
 
+        val feedSignature =
+            feedItems.joinToString("|") { item ->
+                "${item.filePath}:${item.createdAtMs}:${item.nhashSuffix}:${item.sourceLabel}"
+            }
+        if (feedSignature == renderedFeedSignature) {
+            feedEmptyView.visibility = View.GONE
+            return
+        }
+
+        renderedFeedSignature = feedSignature
+        feedContainer.removeAllViews()
         feedEmptyView.visibility = View.GONE
         feedItems.forEachIndexed { index, item ->
             feedContainer.addView(createPhotoCard(item))
@@ -924,15 +986,19 @@ class MainActivity : Activity() {
     }
 
     private fun executeWriteSocketBytes(command: AndroidCommand.WriteSocketBytes) {
-        val resource = sockets[command.connectionId] ?: return
-        try {
-            resource.output.write(command.bytes)
-            resource.output.flush()
-        } catch (e: IOException) {
-            dispatchAndroidEvent(
-                AndroidEvent.SocketError(command.connectionId, e.message ?: "Socket write failed"),
-            )
-            closeSocket(command.connectionId)
+        socketWriteExecutor.execute {
+            val resource = sockets[command.connectionId] ?: return@execute
+            try {
+                synchronized(resource.output) {
+                    resource.output.write(command.bytes)
+                    resource.output.flush()
+                }
+            } catch (e: IOException) {
+                dispatchAndroidEvent(
+                    AndroidEvent.SocketError(command.connectionId, e.message ?: "Socket write failed"),
+                )
+                closeSocket(command.connectionId)
+            }
         }
     }
 
@@ -1007,7 +1073,7 @@ class MainActivity : Activity() {
                 layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(280))
                 scaleType = ImageView.ScaleType.CENTER_CROP
                 background = roundedFill(parseColor("#0d1422"), parseColor("#26344a"), dp(24))
-                setImageBitmap(decodePreviewBitmap(File(item.filePath), 1080, 720))
+                setImageBitmap(loadPreviewBitmap(File(item.filePath), 1080, 720))
                 clipToOutline = true
             }
 
@@ -1058,6 +1124,20 @@ class MainActivity : Activity() {
         inSampleSize = computeSampleSize(outWidth, outHeight, targetWidth, targetHeight)
         inJustDecodeBounds = false
         BitmapFactory.decodeFile(file.absolutePath, this)
+    }
+
+    private fun loadPreviewBitmap(
+        file: File,
+        targetWidth: Int,
+        targetHeight: Int,
+    ): Bitmap? {
+        val cacheKey = "${file.absolutePath}:${file.lastModified()}:$targetWidth:$targetHeight"
+        previewBitmapCache.get(cacheKey)?.let { return it }
+        val bitmap = decodePreviewBitmap(file, targetWidth, targetHeight)
+        if (bitmap != null) {
+            previewBitmapCache.put(cacheKey, bitmap)
+        }
+        return bitmap
     }
 
     private fun computeSampleSize(
