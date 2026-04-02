@@ -16,6 +16,7 @@ Use it like this:
 6. Read the measured throughput in Mbit/s from both logs.
 
 Measured results from the first real-device run are documented in [docs/bandwidth-results.md](/Users/l/Projects/iris/nostr-wifi-aware/docs/bandwidth-results.md).
+The next-step nearby content sync plan is documented in [docs/nearby-hashtree-demo-plan.md](/Users/l/Projects/iris/nostr-wifi-aware/docs/nearby-hashtree-demo-plan.md).
 
 ### Build
 
