@@ -206,7 +206,7 @@ impl CoreState {
                 let photo = self.photo_store.finalize_captured_photo(&temp_path)?;
                 self.page = UiPage::Feed;
                 self.log(&format!(
-                    "Captured photo {} cid={} size={}. Stored immediately in the local hashtree feed.",
+                    "Captured photo {} cid={} size={}. Stored raw JPEG durably first, then ingested into the local hashtree feed.",
                     photo.id,
                     short_cid(&photo.photo_cid),
                     format_byte_count(photo.size_bytes)

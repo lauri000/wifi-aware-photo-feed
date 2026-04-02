@@ -1102,7 +1102,6 @@ class MainActivity : Activity() {
     private fun cleanupAndroidResources() {
         runOnMain {
             currentCaptureRequest = null
-            clearPendingCaptureState()
             publishSession?.close()
             subscribeSession?.close()
             awareSession?.close()
@@ -1252,7 +1251,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun pendingCaptureStateFile(): File = File(cacheDir, "pending-capture.txt")
+    private fun pendingCaptureStateFile(): File = File(filesDir, "hashtree/captures/pending-capture.txt")
 
     private fun revokeCaptureUri(captureRequest: CaptureRequest) {
         runOnMain {

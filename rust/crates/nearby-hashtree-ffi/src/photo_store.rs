@@ -39,9 +39,11 @@ pub struct PhotoStore {
     store_root_dir: PathBuf,
     blocks_dir: PathBuf,
     roots_dir: PathBuf,
+    captures_dir: PathBuf,
+    capture_inbox_dir: PathBuf,
+    capture_originals_dir: PathBuf,
     legacy_demo_dir: PathBuf,
     render_cache_dir: PathBuf,
-    capture_dir: PathBuf,
     local_feed_root_file: PathBuf,
     device_id_file: PathBuf,
     device_id: String,
@@ -59,14 +61,17 @@ impl PhotoStore {
         let store_root_dir = files_dir.join("hashtree");
         let blocks_dir = store_root_dir.join("blocks");
         let roots_dir = store_root_dir.join("roots");
+        let captures_dir = store_root_dir.join("captures");
+        let capture_inbox_dir = captures_dir.join("inbox");
+        let capture_originals_dir = captures_dir.join("originals");
         let legacy_demo_dir = files_dir.join("demo");
         let render_cache_dir = cache_dir.join("render");
-        let capture_dir = cache_dir.join("capture");
         cleanup_legacy_demo_storage(&legacy_demo_dir)?;
         fs::create_dir_all(&blocks_dir).map_err(io_err("create blocks dir"))?;
         fs::create_dir_all(&roots_dir).map_err(io_err("create roots dir"))?;
+        fs::create_dir_all(&capture_inbox_dir).map_err(io_err("create capture inbox dir"))?;
+        fs::create_dir_all(&capture_originals_dir).map_err(io_err("create capture originals dir"))?;
         fs::create_dir_all(&render_cache_dir).map_err(io_err("create render cache dir"))?;
-        fs::create_dir_all(&capture_dir).map_err(io_err("create capture dir"))?;
 
         let store = Arc::new(FsBlobStore::new(&blocks_dir).map_err(store_err("open blocks store"))?);
         let tree = HashTree::new(HashTreeConfig::new(store.clone()).public());
@@ -77,9 +82,11 @@ impl PhotoStore {
             store_root_dir,
             blocks_dir,
             roots_dir: roots_dir.clone(),
+            captures_dir,
+            capture_inbox_dir,
+            capture_originals_dir,
             legacy_demo_dir,
             render_cache_dir,
-            capture_dir,
             local_feed_root_file: roots_dir.join("local_feed_root.txt"),
             device_id_file,
             device_id,
@@ -91,7 +98,7 @@ impl PhotoStore {
     pub fn create_capture_temp_path(&self) -> Result<String, NearbyHashtreeError> {
         self.ensure_dirs()?;
         Ok(self
-            .capture_dir
+            .capture_inbox_dir
             .join(format!("capture-{}.jpg", now_millis()))
             .display()
             .to_string())
@@ -102,7 +109,8 @@ impl PhotoStore {
         temp_path: &str,
     ) -> Result<StoredPhoto, NearbyHashtreeError> {
         self.ensure_dirs()?;
-        let temp_file = std::fs::File::open(temp_path).map_err(io_err("open captured photo"))?;
+        let capture_path = PathBuf::from(temp_path);
+        let temp_file = std::fs::File::open(&capture_path).map_err(io_err("open captured photo"))?;
         let captured_at_ms = now_millis();
         let (cid, size_bytes) = runtime().block_on(async {
             self.tree
@@ -110,7 +118,7 @@ impl PhotoStore {
                 .await
                 .map_err(tree_err("store captured photo"))
         })?;
-        let _ = fs::remove_file(temp_path);
+        let archived_raw_path = self.archive_raw_capture(&capture_path, captured_at_ms, &cid.hash)?;
 
         let current_entries = self.current_entries()?;
         if let Some(existing) = current_entries.iter().find(|entry| entry.hash == cid.hash) {
@@ -126,6 +134,7 @@ impl PhotoStore {
             captured_at_ms,
             &self.device_id,
             "image/jpeg",
+            archived_raw_path.file_name().and_then(|name| name.to_str()),
         ));
         let new_root = runtime().block_on(async {
             self.tree
@@ -145,6 +154,7 @@ impl PhotoStore {
                 captured_at_ms,
                 &self.device_id,
                 "image/jpeg",
+                archived_raw_path.file_name().and_then(|name| name.to_str()),
             )),
         })
     }
@@ -156,9 +166,6 @@ impl PhotoStore {
         }
         if self.render_cache_dir.exists() {
             fs::remove_dir_all(&self.render_cache_dir).map_err(io_err("clear render cache"))?;
-        }
-        if self.capture_dir.exists() {
-            fs::remove_dir_all(&self.capture_dir).map_err(io_err("clear capture cache"))?;
         }
         self.ensure_dirs()?;
         fs::write(&self.device_id_file, &self.device_id).map_err(io_err("persist device id"))?;
@@ -331,8 +338,10 @@ impl PhotoStore {
     fn ensure_dirs(&self) -> Result<(), NearbyHashtreeError> {
         fs::create_dir_all(&self.blocks_dir).map_err(io_err("create blocks dir"))?;
         fs::create_dir_all(&self.roots_dir).map_err(io_err("create roots dir"))?;
+        fs::create_dir_all(&self.captures_dir).map_err(io_err("create captures dir"))?;
+        fs::create_dir_all(&self.capture_inbox_dir).map_err(io_err("create capture inbox dir"))?;
+        fs::create_dir_all(&self.capture_originals_dir).map_err(io_err("create capture originals dir"))?;
         fs::create_dir_all(&self.render_cache_dir).map_err(io_err("create render cache dir"))?;
-        fs::create_dir_all(&self.capture_dir).map_err(io_err("create capture dir"))?;
         Ok(())
     }
 
@@ -511,11 +520,17 @@ impl PhotoStore {
         captured_at_ms: i64,
         source_device_id: &str,
         mime_type: &str,
+        raw_capture_name: Option<&str>,
     ) -> DirEntry {
         DirEntry::from_cid(name, cid)
             .with_size(size_bytes)
             .with_link_type(LinkType::File)
-            .with_meta(photo_meta(captured_at_ms, source_device_id, mime_type))
+            .with_meta(photo_meta(
+                captured_at_ms,
+                source_device_id,
+                mime_type,
+                raw_capture_name,
+            ))
     }
 
     fn entries_to_dir_entries(
@@ -533,6 +548,31 @@ impl PhotoStore {
                 meta: entry.meta,
             })
             .collect()
+    }
+
+    fn archive_raw_capture(
+        &self,
+        capture_path: &Path,
+        captured_at_ms: i64,
+        hash: &[u8; 32],
+    ) -> Result<PathBuf, NearbyHashtreeError> {
+        self.ensure_dirs()?;
+        let archived_name = entry_name_for(captured_at_ms, hash);
+        let archived_path = self.capture_originals_dir.join(archived_name);
+
+        if capture_path == archived_path {
+            return Ok(archived_path);
+        }
+
+        if archived_path.exists() {
+            if capture_path.exists() {
+                fs::remove_file(capture_path).map_err(io_err("remove duplicate raw capture"))?;
+            }
+            return Ok(archived_path);
+        }
+
+        fs::rename(capture_path, &archived_path).map_err(io_err("archive raw capture"))?;
+        Ok(archived_path)
     }
 }
 
@@ -557,8 +597,9 @@ fn photo_meta(
     captured_at_ms: i64,
     source_device_id: &str,
     mime_type: &str,
+    raw_capture_name: Option<&str>,
 ) -> HashMap<String, Value> {
-    HashMap::from([
+    let mut meta = HashMap::from([
         (
             "captured_at_ms".to_string(),
             Value::Number(captured_at_ms.into()),
@@ -568,7 +609,14 @@ fn photo_meta(
             Value::String(source_device_id.to_string()),
         ),
         ("mime_type".to_string(), Value::String(mime_type.to_string())),
-    ])
+    ]);
+    if let Some(raw_capture_name) = raw_capture_name {
+        meta.insert(
+            "raw_capture_name".to_string(),
+            Value::String(raw_capture_name.to_string()),
+        );
+    }
+    meta
 }
 
 fn entry_meta_string(
@@ -715,6 +763,27 @@ mod tests {
         assert_eq!(first.photo_cid, second.photo_cid);
         assert_eq!(store.current_entry_count().expect("entry count"), 1);
         assert_eq!(bytes_after_first, bytes_after_second);
+    }
+
+    #[test]
+    fn captured_photo_is_archived_before_feed_sync() {
+        let (_dir, store) = make_store();
+        let temp = store.create_capture_temp_path().expect("temp path");
+        assert!(temp.contains("/hashtree/captures/inbox/"));
+        std::fs::write(&temp, b"durable-raw-photo").expect("write photo");
+
+        let stored = store.finalize_captured_photo(&temp).expect("capture");
+
+        assert!(!std::path::Path::new(&temp).exists());
+        let originals = std::fs::read_dir(&store.capture_originals_dir)
+            .expect("read originals dir")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("collect originals");
+        assert_eq!(originals.len(), 1);
+        let raw_bytes = std::fs::read(originals[0].path()).expect("read archived raw photo");
+        assert_eq!(raw_bytes, b"durable-raw-photo");
+        assert_eq!(store.current_entry_count().expect("entry count"), 1);
+        assert!(!stored.photo_cid.is_empty());
     }
 
     #[test]
