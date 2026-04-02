@@ -9,6 +9,7 @@ license = "MIT"
 
 [workspace.dependencies]
 hashtree-core = { path = "../../hashtree/rust/crates/hashtree-core" }
+hashtree-fs = { path = "../../hashtree/rust/crates/hashtree-fs" }
 futures = "0.3"
 thiserror = "1.0"
 uniffi = { version = "0.28", features = ["cli"] }

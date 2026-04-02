@@ -1,74 +1,63 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="980" height="520" viewBox="0 0 980 520" role="img" aria-labelledby="title desc">
   <title id="title">FIPS-0001 system boundary</title>
-  <desc id="desc">Architecture diagram showing the Kotlin adapter layer, the Rust core layer, Android services, and app-private storage.</desc>
+  <desc id="desc">Architecture diagram showing the Kotlin Android adapter, the Rust app core, and the persistent hashtree storage boundary.</desc>
   <defs>
     <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth">
-      <path d="M 0 0 L 10 5 L 0 10 z" fill="#6b7280"/>
+      <path d="M0,0 L10,5 L0,10 z" fill="#355c7d"/>
     </marker>
     <style>
-      .bg { fill: #f8fafc; }
-      .panel { fill: #ffffff; stroke: #cbd5e1; stroke-width: 2; rx: 18; ry: 18; }
-      .kotlin { fill: #eff6ff; stroke: #2563eb; stroke-width: 2; rx: 16; ry: 16; }
-      .rust { fill: #fff7ed; stroke: #c2410c; stroke-width: 2; rx: 16; ry: 16; }
-      .ext { fill: #f1f5f9; stroke: #64748b; stroke-width: 2; rx: 16; ry: 16; }
-      .title { font: 700 24px Arial, sans-serif; fill: #0f172a; }
-      .label { font: 700 16px Arial, sans-serif; fill: #0f172a; }
-      .body { font: 14px Arial, sans-serif; fill: #334155; }
-      .mono { font: 13px 'Courier New', monospace; fill: #1e293b; }
-      .line { stroke: #6b7280; stroke-width: 2.5; fill: none; marker-end: url(#arrow); }
-      .small { font: 12px Arial, sans-serif; fill: #475569; }
+      .bg { fill: #f7f4ef; }
+      .frame { fill: #fffdf8; stroke: #9a8f7a; stroke-width: 2; rx: 18; }
+      .kotlin { fill: #f7e3c7; stroke: #b7791f; stroke-width: 2; rx: 16; }
+      .rust { fill: #d9ead7; stroke: #4c7a57; stroke-width: 2; rx: 16; }
+      .store { fill: #ddebf7; stroke: #4c6f91; stroke-width: 2; rx: 16; }
+      .title { font: 700 28px Arial, sans-serif; fill: #2d2d2d; }
+      .section { font: 700 22px Arial, sans-serif; fill: #2d2d2d; }
+      .body { font: 16px Arial, sans-serif; fill: #2d2d2d; }
+      .mono { font: 15px 'SFMono-Regular', Consolas, monospace; fill: #2d2d2d; }
+      .arrow { stroke: #355c7d; stroke-width: 3; fill: none; marker-end: url(#arrow); }
     </style>
   </defs>
 
   <rect class="bg" x="0" y="0" width="980" height="520"/>
-  <text class="title" x="36" y="40">FIPS-0001 System Boundary</text>
+  <text class="title" x="40" y="50">Local Instagram Architecture Boundary</text>
 
-  <rect class="panel" x="30" y="60" width="920" height="430"/>
+  <rect class="frame" x="40" y="80" width="900" height="390"/>
 
-  <rect class="kotlin" x="60" y="100" width="350" height="330"/>
-  <text class="label" x="82" y="130">Kotlin adapter layer</text>
-  <text class="mono" x="82" y="160">MainActivity.kt</text>
-  <text class="body" x="82" y="195">- camera intent and FileProvider</text>
-  <text class="body" x="82" y="220">- Wi-Fi Aware attach, publish, subscribe</text>
-  <text class="body" x="82" y="245">- ConnectivityManager data path setup</text>
-  <text class="body" x="82" y="270">- TCP socket ownership and IO threads</text>
-  <text class="body" x="82" y="295">- ViewState rendering into Android Views</text>
-  <text class="body" x="82" y="320">- BitmapFactory decode and LruCache</text>
-  <text class="small" x="82" y="360">Owns Android framework handles.</text>
-  <text class="small" x="82" y="380">Does not own app policy.</text>
+  <rect class="kotlin" x="70" y="120" width="250" height="290"/>
+  <text class="section" x="95" y="155">Kotlin Adapter</text>
+  <text class="body" x="95" y="190">- Activity lifecycle and UI</text>
+  <text class="body" x="95" y="218">- Camera intent and FileProvider</text>
+  <text class="body" x="95" y="246">- Wi-Fi Aware and ConnectivityManager</text>
+  <text class="body" x="95" y="274">- Socket read/write plumbing</text>
+  <text class="body" x="95" y="302">- BitmapFactory decoding</text>
+  <text class="mono" x="95" y="350">MainActivity.kt</text>
 
-  <rect class="rust" x="440" y="100" width="300" height="330"/>
-  <text class="label" x="462" y="130">Rust core layer</text>
-  <text class="mono" x="462" y="160">app_core.rs</text>
-  <text class="mono" x="462" y="180">photo_store.rs</text>
-  <text class="mono" x="462" y="200">protocol.rs</text>
-  <text class="mono" x="462" y="220">types.rs / lib.rs</text>
-  <text class="body" x="462" y="255">- UiAction, AndroidEvent, AndroidCommand</text>
-  <text class="body" x="462" y="280">- peer orchestration and transfer state</text>
-  <text class="body" x="462" y="305">- manifest writes and duplicate detection</text>
-  <text class="body" x="462" y="330">- nhash compute and verification</text>
-  <text class="body" x="462" y="355">- feed ordering and logs</text>
-  <text class="small" x="462" y="390">Owns application state and storage policy.</text>
+  <rect class="rust" x="365" y="120" width="290" height="290"/>
+  <text class="section" x="390" y="155">Rust Core</text>
+  <text class="body" x="390" y="190">- feed root and block-store policy</text>
+  <text class="body" x="390" y="218">- peer state machine</text>
+  <text class="body" x="390" y="246">- root/block sync protocol</text>
+  <text class="body" x="390" y="274">- merge and dedupe by content hash</text>
+  <text class="body" x="390" y="302">- ViewState shaping</text>
+  <text class="mono" x="390" y="338">app_core.rs</text>
+  <text class="mono" x="390" y="364">photo_store.rs</text>
+  <text class="mono" x="390" y="390">protocol.rs</text>
 
-  <rect class="ext" x="770" y="100" width="150" height="140"/>
-  <text class="label" x="792" y="130">Android</text>
-  <text class="body" x="792" y="160">Wi-Fi Aware</text>
-  <text class="body" x="792" y="185">Connectivity</text>
-  <text class="body" x="792" y="210">Camera intent</text>
+  <rect class="store" x="700" y="120" width="210" height="290"/>
+  <text class="section" x="725" y="155">App-Private Data</text>
+  <text class="mono" x="725" y="195">files/hashtree/blocks</text>
+  <text class="mono" x="725" y="223">files/hashtree/roots</text>
+  <text class="mono" x="725" y="251">cache/render</text>
+  <text class="mono" x="725" y="279">cache/capture</text>
+  <text class="body" x="725" y="320">Durable:</text>
+  <text class="body" x="725" y="346">blocks + local_feed_root.txt</text>
+  <text class="body" x="725" y="378">Disposable:</text>
+  <text class="body" x="725" y="404">render cache and capture temp files</text>
 
-  <rect class="ext" x="770" y="270" width="150" height="160"/>
-  <text class="label" x="792" y="300">App storage</text>
-  <text class="body" x="792" y="330">files/demo/local</text>
-  <text class="body" x="792" y="355">files/demo/received</text>
-  <text class="body" x="792" y="380">files/demo/tmp</text>
-  <text class="body" x="792" y="405">manifest.json</text>
+  <path class="arrow" d="M320 265 L365 265"/>
+  <path class="arrow" d="M655 265 L700 265"/>
 
-  <path class="line" d="M 410 215 L 440 215"/>
-  <text class="small" x="418" y="205">UniFFI</text>
-
-  <path class="line" d="M 740 170 L 770 170"/>
-  <text class="small" x="720" y="160">commands</text>
-
-  <path class="line" d="M 770 350 L 740 350"/>
-  <text class="small" x="688" y="340">file paths and bytes</text>
+  <text class="body" x="348" y="245">UiAction / AndroidEvent</text>
+  <text class="body" x="666" y="245">HashTree / FsBlobStore</text>
 </svg>

@@ -3,30 +3,21 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 use crate::photo_store::PhotoStore;
-use crate::protocol::{encode_frame, FrameDecoder, WireMessage, WirePhoto};
+use crate::protocol::{encode_frame, FrameDecoder, WireMessage};
 use crate::types::{
-    AndroidCommand, AndroidEvent, ControlsEnabled, DiscoveryChannel, SocketSide, StoredPhoto,
-    UiAction, UiPage, ViewState,
+    AndroidCommand, AndroidEvent, ControlsEnabled, DiscoveryChannel, SocketSide, UiAction, UiPage,
+    ViewState,
 };
 use crate::NearbyHashtreeError;
 
 const SERVICE_NAME: &str = "_nostrwifiaware._tcp";
 const SECURE_PASSPHRASE: &str = "awarebenchpass123";
 const TCP_PROTOCOL: i32 = 6;
-const ALBUM_LABEL: &str = "Local Instagram Feed";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Role {
     Idle,
     Peer,
-}
-
-#[derive(Debug, Clone)]
-struct OutboundTransfer {
-    label: String,
-    photos: VecDeque<StoredPhoto>,
-    total_count: usize,
-    waiting_for_ack: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -42,7 +33,7 @@ struct PeerState {
 }
 
 impl PeerState {
-    fn new(_instance: String) -> Self {
+    fn new() -> Self {
         Self {
             publish_handle_id: None,
             subscribe_handle_id: None,
@@ -60,11 +51,9 @@ impl PeerState {
 struct ConnectionState {
     peer_instance: String,
     side: Option<SocketSide>,
-    active_feed_label: String,
-    outbound_transfer: Option<OutboundTransfer>,
+    active_sync_root: Option<String>,
 }
 
-#[derive(Debug)]
 struct CoreState {
     app_instance: String,
     photo_store: PhotoStore,
@@ -82,7 +71,6 @@ struct CoreState {
     subscribe_handle_to_instance: HashMap<i64, String>,
     connections: HashMap<i64, ConnectionState>,
     inbound_decoders: HashMap<i64, FrameDecoder>,
-    broadcast_mode: bool,
 }
 
 #[derive(uniffi::Object)]
@@ -95,9 +83,10 @@ impl AppCore {
     #[uniffi::constructor]
     pub fn new(
         app_files_dir: String,
+        app_cache_dir: String,
         app_instance: String,
     ) -> Result<Self, NearbyHashtreeError> {
-        let photo_store = PhotoStore::new(PathBuf::from(app_files_dir))?;
+        let photo_store = PhotoStore::new(PathBuf::from(app_files_dir), PathBuf::from(app_cache_dir))?;
         let mut state = CoreState {
             app_instance,
             photo_store,
@@ -115,9 +104,10 @@ impl AppCore {
             subscribe_handle_to_instance: HashMap::new(),
             connections: HashMap::new(),
             inbound_decoders: HashMap::new(),
-            broadcast_mode: false,
         };
-        state.log("Local Instagram loaded. Take photos, keep them in app-private nhash-addressed storage, and broadcast them to nearby phones over Wi-Fi Aware.");
+        state.log(
+            "Local Instagram loaded. Photos are persisted as hashtree blocks and synced by root + block hash over Wi-Fi Aware.",
+        );
         Ok(Self {
             state: Mutex::new(state),
         })
@@ -128,8 +118,7 @@ impl AppCore {
         action: UiAction,
     ) -> Result<(), NearbyHashtreeError> {
         let mut state = self.lock_state()?;
-        state.on_ui_action(action)?;
-        Ok(())
+        state.on_ui_action(action)
     }
 
     pub fn on_android_event(
@@ -137,8 +126,7 @@ impl AppCore {
         event: AndroidEvent,
     ) -> Result<(), NearbyHashtreeError> {
         let mut state = self.lock_state()?;
-        state.on_android_event(event)?;
-        Ok(())
+        state.on_android_event(event)
     }
 
     pub fn take_pending_commands(&self) -> Result<Vec<AndroidCommand>, NearbyHashtreeError> {
@@ -148,7 +136,7 @@ impl AppCore {
 
     pub fn current_view_state(&self) -> Result<ViewState, NearbyHashtreeError> {
         let state = self.lock_state()?;
-        Ok(state.view_state())
+        state.view_state()
     }
 }
 
@@ -167,10 +155,6 @@ impl CoreState {
     ) -> Result<(), NearbyHashtreeError> {
         match action {
             UiAction::TakePhotoRequested => {
-                if self.any_transfer_in_flight() {
-                    self.log("Wait for the current nearby transfer to finish before taking another photo.");
-                    return Ok(());
-                }
                 let output_path = self.photo_store.create_capture_temp_path()?;
                 self.queue(AndroidCommand::LaunchCameraCapture { output_path });
             }
@@ -193,11 +177,10 @@ impl CoreState {
             }
             UiAction::ClearDemoDataRequested => {
                 if self.role != Role::Idle {
-                    self.stop("Stopped nearby mode for demo data clear");
+                    self.stop("Stopped nearby mode for data clear");
                 }
                 self.photo_store.clear_all()?;
-                self.broadcast_mode = false;
-                self.log("Cleared all local and nearby photos.");
+                self.log("Cleared local hashtree roots, blocks, and render cache.");
             }
             UiAction::SwitchPage(page) => {
                 self.page = page;
@@ -231,14 +214,11 @@ impl CoreState {
                 let photo = self.photo_store.finalize_captured_photo(&temp_path)?;
                 self.page = UiPage::Feed;
                 self.log(&format!(
-                    "Captured photo {} nhash={} size={}",
+                    "Captured photo {} cid={} size={}",
                     photo.id,
-                    photo.nhash,
+                    short_cid(&photo.photo_cid),
                     format_byte_count(photo.size_bytes)
                 ));
-                if self.broadcast_mode && self.role == Role::Peer {
-                    self.broadcast_to_all_known_peers("new photo captured")?;
-                }
             }
             AndroidEvent::CameraCaptureCancelled => {
                 self.log("Photo capture canceled.");
@@ -312,10 +292,18 @@ impl CoreState {
                     peer_label(handle_id)
                 ));
                 if let Some(remote_instance) = payload.strip_prefix("hello:") {
-                    self.remember_peer_handle(remote_instance.to_string(), handle_id, channel == DiscoveryChannel::Publish);
+                    self.remember_peer_handle(
+                        remote_instance.to_string(),
+                        handle_id,
+                        channel == DiscoveryChannel::Publish,
+                    );
                     self.handle_responder_hello(remote_instance.to_string(), handle_id)?;
                 } else if let Some(remote_instance) = payload.strip_prefix("ready:") {
-                    self.remember_peer_handle(remote_instance.to_string(), handle_id, channel == DiscoveryChannel::Subscribe);
+                    self.remember_peer_handle(
+                        remote_instance.to_string(),
+                        handle_id,
+                        channel == DiscoveryChannel::Subscribe,
+                    );
                     self.handle_initiator_ready(remote_instance.to_string(), handle_id)?;
                 }
             }
@@ -431,6 +419,7 @@ impl CoreState {
             AndroidEvent::SocketClosed { connection_id } => {
                 self.inbound_decoders.remove(&connection_id);
                 if let Some(connection) = self.connections.remove(&connection_id) {
+                    let peer_instance = connection.peer_instance.clone();
                     if let Some(peer) = self.peers.get_mut(&connection.peer_instance) {
                         if peer.connection_id == Some(connection_id) {
                             peer.connection_id = None;
@@ -441,9 +430,12 @@ impl CoreState {
                         }
                     }
                     self.log(&format!(
-                        "Peer photo stream closed for {}.",
+                        "Peer sync socket closed for {}.",
                         connection.peer_instance
                     ));
+                    if self.role == Role::Peer {
+                        self.ensure_data_path_for_peer(&peer_instance);
+                    }
                 }
                 self.refresh_link_text();
             }
@@ -472,24 +464,20 @@ impl CoreState {
         Ok(())
     }
 
-    fn view_state(&self) -> ViewState {
-        let local_count = self.photo_store.local_count();
-        let nearby_count = self.photo_store.received_count();
-        let storage_bytes = self.photo_store.total_storage_bytes();
+    fn view_state(&self) -> Result<ViewState, NearbyHashtreeError> {
+        let local_count = self.photo_store.local_count()?;
+        let nearby_count = self.photo_store.received_count()?;
+        let storage_bytes = self.photo_store.total_storage_bytes()?;
         let connected_peers = self.connected_peer_count();
         let any_transfer = self.any_transfer_in_flight();
-        let has_shareable = !self.photo_store.shareable_photos().is_empty();
+        let has_shareable = self.photo_store.has_any_photos()?;
 
-        ViewState {
+        Ok(ViewState {
             page: self.page.clone(),
             status_text: format!("STATUS  {}", self.status_text),
             mode_text: format!(
                 "MODE  {}",
-                if self.broadcast_mode {
-                    "Broadcasting"
-                } else {
-                    self.role_label()
-                }
+                self.role_label()
             ),
             link_text: format!(
                 "LINK  {} nearby · {} linked",
@@ -497,11 +485,10 @@ impl CoreState {
                 connected_peers
             ),
             storage_text: format!("STORAGE  {}", format_byte_count(storage_bytes)),
-            local_summary_text: format!("Your photos: {}  ·  Taken on this phone", local_count),
+            local_summary_text: format!("Your photos: {}  ·  Stored as local feed blocks", local_count),
             nearby_summary_text: format!(
-                "Received nearby: {}  ·  {}",
-                nearby_count,
-                format_byte_count(storage_bytes)
+                "Received nearby: {}  ·  Content-addressed merge",
+                nearby_count
             ),
             controls_enabled: ControlsEnabled {
                 take_photo: !any_transfer,
@@ -511,9 +498,9 @@ impl CoreState {
                 clear_demo_data: !any_transfer,
                 clear_log: true,
             },
-            feed_items: self.photo_store.feed_items(),
+            feed_items: self.photo_store.feed_items()?,
             log_lines: self.log_lines.iter().cloned().collect(),
-        }
+        })
     }
 
     fn role_label(&self) -> &'static str {
@@ -537,7 +524,7 @@ impl CoreState {
     fn any_transfer_in_flight(&self) -> bool {
         self.connections
             .values()
-            .any(|connection| connection.outbound_transfer.is_some())
+            .any(|connection| connection.active_sync_root.is_some())
     }
 
     fn connected_peer_count(&self) -> usize {
@@ -553,11 +540,7 @@ impl CoreState {
             Role::Peer => {
                 let discovered = self.peers.len();
                 let connected = self.connected_peer_count();
-                if self.broadcast_mode {
-                    format!("{discovered} nearby · {connected} linked · broadcast on")
-                } else {
-                    format!("{discovered} nearby · {connected} linked")
-                }
+                format!("{discovered} nearby · {connected} linked")
             }
         };
     }
@@ -568,10 +551,7 @@ impl CoreState {
         handle_id: i64,
         is_publish_handle: bool,
     ) {
-        let peer = self
-            .peers
-            .entry(instance.clone())
-            .or_insert_with(|| PeerState::new(instance.clone()));
+        let peer = self.peers.entry(instance.clone()).or_insert_with(PeerState::new);
         if is_publish_handle {
             peer.publish_handle_id = Some(handle_id);
             self.publish_handle_to_instance.insert(handle_id, instance);
@@ -669,8 +649,7 @@ impl CoreState {
             ConnectionState {
                 peer_instance: peer_instance.clone(),
                 side: None,
-                active_feed_label: ALBUM_LABEL.to_string(),
-                outbound_transfer: None,
+                active_sync_root: None,
             },
         );
         if let Some(peer) = self.peers.get_mut(&peer_instance) {
@@ -725,8 +704,7 @@ impl CoreState {
             ConnectionState {
                 peer_instance: peer_instance.clone(),
                 side: None,
-                active_feed_label: ALBUM_LABEL.to_string(),
-                outbound_transfer: None,
+                active_sync_root: None,
             },
         );
         if let Some(peer) = self.peers.get_mut(&peer_instance) {
@@ -783,15 +761,13 @@ impl CoreState {
             return Ok(());
         }
 
-        if self.photo_store.shareable_photos().is_empty() {
+        if !self.photo_store.has_any_photos()? {
             self.log("Take a photo first, then broadcast it.");
             return Ok(());
         }
 
-        self.broadcast_mode = true;
-        self.refresh_link_text();
         self.log(&format!(
-            "Broadcast mode armed from {}. Nearby phones will accept and deduplicate automatically.",
+            "Broadcast requested from {}. Nearby phones will auto-accept blocks, verify roots, and deduplicate locally.",
             trigger
         ));
         self.broadcast_to_all_known_peers(trigger)
@@ -818,12 +794,12 @@ impl CoreState {
 
         if started_count > 0 {
             self.log(&format!(
-                "Started broadcast to {} nearby {}.",
+                "Started root broadcast to {} nearby {}.",
                 started_count,
                 if started_count == 1 { "phone" } else { "phones" }
             ));
         } else {
-            self.log("Broadcast is armed. Nearby peers will receive photos as each Wi-Fi Aware socket connects.");
+            self.log("Broadcast is armed. Nearby peers will receive the current root as each Wi-Fi Aware socket connects.");
         }
         Ok(())
     }
@@ -836,7 +812,7 @@ impl CoreState {
         let should_broadcast = self
             .peers
             .get(peer_instance)
-            .map(|peer| self.broadcast_mode || peer.pending_broadcast)
+            .map(|peer| peer.pending_broadcast)
             .unwrap_or(false);
         if !should_broadcast {
             return Ok(false);
@@ -859,134 +835,49 @@ impl CoreState {
         if self
             .connections
             .get(&connection_id)
-            .and_then(|connection| connection.outbound_transfer.as_ref())
+            .and_then(|connection| connection.active_sync_root.as_ref())
             .is_some()
         {
             return Ok(false);
         }
 
-        self.begin_outbound_transfer_for_connection(connection_id, trigger)?;
+        self.send_root_announce_for_connection(connection_id, trigger)?;
         Ok(true)
     }
 
-    fn begin_outbound_transfer_for_connection(
+    fn send_root_announce_for_connection(
         &mut self,
         connection_id: i64,
         trigger: &str,
     ) -> Result<(), NearbyHashtreeError> {
-        let photos = self.photo_store.shareable_photos();
-        if photos.is_empty() {
+        let Some(root_nhash) = self.photo_store.current_root()? else {
             self.log("Take a photo first, then broadcast it.");
             return Ok(());
-        }
-
+        };
+        let block_hashes = self.photo_store.collect_root_hashes(&root_nhash)?;
+        let entry_count = self.photo_store.current_entry_count()? as u32;
         let Some(connection) = self.connections.get_mut(&connection_id) else {
             return Ok(());
         };
-        if connection.outbound_transfer.is_some() {
-            return Ok(());
-        }
+        connection.active_sync_root = Some(root_nhash.clone());
         let peer_instance = connection.peer_instance.clone();
-        connection.outbound_transfer = Some(OutboundTransfer {
-            label: ALBUM_LABEL.to_string(),
-            total_count: photos.len(),
-            photos: VecDeque::from(photos),
-            waiting_for_ack: false,
-        });
-        let total_count = connection
-            .outbound_transfer
-            .as_ref()
-            .map(|transfer| transfer.total_count)
-            .unwrap_or(0);
-        let Some(peer) = self.peers.get_mut(&peer_instance) else {
-            return Ok(());
-        };
-        peer.pending_broadcast = false;
-
+        if let Some(peer) = self.peers.get_mut(&peer_instance) {
+            peer.pending_broadcast = false;
+        }
         self.log(&format!(
-            "Sending {} photos to {} over Wi-Fi Aware ({}).",
-            total_count,
+            "Announcing feed root {} ({} photos, {} blocks) to {} over Wi-Fi Aware ({})",
+            short_cid(&root_nhash),
+            entry_count,
+            block_hashes.len(),
             peer_instance,
             trigger
         ));
         self.queue(AndroidCommand::WriteSocketBytes {
             connection_id,
-            bytes: encode_frame(&WireMessage::Set {
-                label: ALBUM_LABEL.to_string(),
-                count: total_count as u32,
-            })?,
-        });
-        self.send_next_outbound_photo(connection_id)?;
-        Ok(())
-    }
-
-    fn send_next_outbound_photo(
-        &mut self,
-        connection_id: i64,
-    ) -> Result<(), NearbyHashtreeError> {
-        let (peer_instance, maybe_photo, total_count, label) = {
-            let Some(connection) = self.connections.get_mut(&connection_id) else {
-                return Ok(());
-            };
-            let Some(transfer) = connection.outbound_transfer.as_mut() else {
-                return Ok(());
-            };
-            if transfer.waiting_for_ack {
-                return Ok(());
-            }
-            let peer_instance = connection.peer_instance.clone();
-            let total_count = transfer.total_count;
-            let label = transfer.label.clone();
-            let next_photo = transfer.photos.pop_front();
-            if next_photo.is_some() {
-                transfer.waiting_for_ack = true;
-            }
-            (peer_instance, next_photo, total_count, label)
-        };
-
-        let Some(photo) = maybe_photo else {
-            self.queue(AndroidCommand::WriteSocketBytes {
-                connection_id,
-                bytes: encode_frame(&WireMessage::Done {
-                    label: label.clone(),
-                    count: total_count as u32,
-                })?,
-            });
-            if let Some(connection) = self.connections.get_mut(&connection_id) {
-                connection.outbound_transfer = None;
-            }
-            self.log(&format!(
-                "Finished sending the current photo collection to {}.",
-                peer_instance
-            ));
-            return Ok(());
-        };
-
-        let bytes = std::fs::read(self.photo_store.resolve_photo_path(&photo))
-            .map_err(|e| NearbyHashtreeError::Message(format!("failed to read photo bytes: {e}")))?;
-        let photo_id = photo.id.clone();
-        let photo_nhash = photo.nhash.clone();
-        let photo_size_bytes = photo.size_bytes;
-        let wire_photo = WirePhoto {
-            id: photo.id,
-            source_label: photo.source_label,
-            created_at_ms: photo.created_at_ms,
-            announced_nhash: photo.nhash,
-            mime_type: photo.mime_type,
-            size_bytes: photo.size_bytes,
-            bytes,
-        };
-        self.log(&format!(
-            "Sending {} nhash={} size={} to {} over Wi-Fi Aware",
-            photo_id,
-            photo_nhash,
-            format_byte_count(photo_size_bytes),
-            peer_instance
-        ));
-        self.queue(AndroidCommand::WriteSocketBytes {
-            connection_id,
-            bytes: encode_frame(&WireMessage::Photo {
-                photo: wire_photo,
+            bytes: encode_frame(&WireMessage::RootAnnounce {
+                feed_root_nhash: root_nhash,
+                block_hashes,
+                entry_count,
             })?,
         });
         Ok(())
@@ -1002,88 +893,123 @@ impl CoreState {
             .unwrap_or_else(|| format!("connection-{connection_id}"));
 
         match message {
-            WireMessage::Set { label, count } => {
+            WireMessage::RootAnnounce {
+                feed_root_nhash,
+                block_hashes,
+                entry_count,
+            } => {
                 if let Some(connection) = self.connections.get_mut(&connection_id) {
-                    connection.active_feed_label = label.clone();
+                    connection.active_sync_root = Some(feed_root_nhash.clone());
                 }
                 self.log(&format!(
-                    "Receiving {} photos from {} inside {}.",
-                    count, peer_instance, label
+                    "Peer {} announced feed root {} ({} photos, {} blocks).",
+                    peer_instance,
+                    short_cid(&feed_root_nhash),
+                    entry_count,
+                    block_hashes.len()
                 ));
-            }
-            WireMessage::Photo { photo } => {
-                let active_feed_label = self
-                    .connections
-                    .get(&connection_id)
-                    .map(|connection| connection.active_feed_label.clone())
-                    .unwrap_or_else(|| ALBUM_LABEL.to_string());
+                let missing_hashes = self.photo_store.missing_hashes(&block_hashes)?;
                 self.log(&format!(
-                    "Receiving photo {} from {} inside {} nhash={} ({}) over Wi-Fi Aware",
-                    photo.id,
-                    photo.source_label,
-                    active_feed_label,
-                    photo.announced_nhash,
-                    format_byte_count(photo.size_bytes)
+                    "Need {} of {} blocks for root {}.",
+                    missing_hashes.len(),
+                    block_hashes.len(),
+                    short_cid(&feed_root_nhash)
                 ));
-                let temp_path = self.photo_store.create_incoming_temp_path(&photo.id)?;
-                std::fs::write(&temp_path, &photo.bytes).map_err(|e| {
-                    NearbyHashtreeError::Message(format!("failed to write incoming temp photo: {e}"))
-                })?;
-                let result = self.photo_store.verify_and_store_received_photo(
-                    &temp_path,
-                    &photo.id,
-                    photo.created_at_ms,
-                    &photo.announced_nhash,
-                    &photo.source_label,
-                    &photo.mime_type,
-                )?;
-                self.log(&result.message);
                 self.queue(AndroidCommand::WriteSocketBytes {
                     connection_id,
-                    bytes: encode_frame(&WireMessage::Ack {
-                        success: result.success,
-                        actual_nhash: result.actual_nhash.clone(),
-                        already_present: result.already_present,
-                        message: result.message.clone(),
+                    bytes: encode_frame(&WireMessage::BlockWant {
+                        feed_root_nhash,
+                        missing_hashes,
                     })?,
                 });
             }
-            WireMessage::Done { label, count } => {
-                self.log(&format!(
-                    "Finished receiving {} photos from {} inside {}.",
-                    count, peer_instance, label
-                ));
-            }
-            WireMessage::Ack {
-                success,
-                actual_nhash,
-                already_present,
-                message,
+            WireMessage::BlockWant {
+                feed_root_nhash,
+                missing_hashes,
             } => {
                 self.log(&format!(
-                    "Peer {} replied: success={} actualNhash={} alreadyPresent={}",
+                    "Peer {} requested {} missing blocks for root {}.",
                     peer_instance,
-                    success,
-                    actual_nhash.clone().unwrap_or_else(|| "n/a".to_string()),
-                    already_present
+                    missing_hashes.len(),
+                    short_cid(&feed_root_nhash)
                 ));
-                self.log(&message);
+                for hash_hex in missing_hashes {
+                    match self.photo_store.read_block(&hash_hex)? {
+                        Some(bytes) => {
+                            self.queue(AndroidCommand::WriteSocketBytes {
+                                connection_id,
+                                bytes: encode_frame(&WireMessage::BlockPut {
+                                    hash_hex: hash_hex.clone(),
+                                    bytes,
+                                })?,
+                            });
+                        }
+                        None => {
+                            self.log(&format!(
+                                "Missing requested local block {} while serving {}.",
+                                short_hash(&hash_hex),
+                                peer_instance
+                            ));
+                        }
+                    }
+                }
+                self.queue(AndroidCommand::WriteSocketBytes {
+                    connection_id,
+                    bytes: encode_frame(&WireMessage::SyncDone {
+                        feed_root_nhash: feed_root_nhash.clone(),
+                    })?,
+                });
                 if let Some(connection) = self.connections.get_mut(&connection_id) {
-                    if let Some(transfer) = connection.outbound_transfer.as_mut() {
-                        transfer.waiting_for_ack = false;
+                    connection.active_sync_root = None;
+                }
+                self.log(&format!(
+                    "Finished pushing root {} to {}.",
+                    short_cid(&feed_root_nhash),
+                    peer_instance
+                ));
+            }
+            WireMessage::BlockPut { hash_hex, bytes } => {
+                match self.photo_store.store_incoming_block(&hash_hex, &bytes) {
+                    Ok(()) => {
+                        self.log(&format!(
+                            "Stored incoming block {} ({}).",
+                            short_hash(&hash_hex),
+                            format_byte_count(bytes.len() as u64)
+                        ));
+                    }
+                    Err(err) => {
+                        self.log(&format!(
+                            "Rejected incoming block {} from {}: {}",
+                            short_hash(&hash_hex),
+                            peer_instance,
+                            err
+                        ));
                     }
                 }
-                if !success {
-                    self.log(&format!(
-                        "Stopping photo transfer to {} because the peer rejected a photo.",
-                        peer_instance
-                    ));
-                    if let Some(connection) = self.connections.get_mut(&connection_id) {
-                        connection.outbound_transfer = None;
+            }
+            WireMessage::SyncDone { feed_root_nhash } => {
+                match self.photo_store.finalize_remote_sync(&feed_root_nhash) {
+                    Ok(merge) => {
+                        self.log(&format!(
+                            "Verified root {} from {} and merged {} new photos ({} already present).",
+                            short_cid(&feed_root_nhash),
+                            peer_instance,
+                            merge.added_entries,
+                            merge.already_present_entries
+                        ));
                     }
-                    return Ok(());
+                    Err(err) => {
+                        self.log(&format!(
+                            "Root {} from {} did not verify cleanly: {}",
+                            short_cid(&feed_root_nhash),
+                            peer_instance,
+                            err
+                        ));
+                    }
                 }
-                self.send_next_outbound_photo(connection_id)?;
+                if let Some(connection) = self.connections.get_mut(&connection_id) {
+                    connection.active_sync_root = None;
+                }
             }
         }
         Ok(())
@@ -1094,7 +1020,6 @@ impl CoreState {
         reason: &str,
     ) {
         self.pending_start_nearby = false;
-        self.broadcast_mode = false;
         self.peers.clear();
         self.publish_handle_to_instance.clear();
         self.subscribe_handle_to_instance.clear();
@@ -1136,15 +1061,37 @@ fn format_byte_count(bytes: u64) -> String {
     }
 }
 
+fn short_hash(hash_hex: &str) -> String {
+    hash_hex.chars().take(12).collect()
+}
+
+fn short_cid(nhash: &str) -> String {
+    if nhash.len() > 16 {
+        nhash[nhash.len() - 16..].to_string()
+    } else {
+        nhash.to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{AppCore, SERVICE_NAME};
+    use crate::protocol::{FrameDecoder, WireMessage};
     use crate::types::{AndroidCommand, AndroidEvent, UiAction};
 
     #[test]
     fn start_nearby_requests_permissions() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let core = AppCore::new(dir.path().display().to_string(), "phone-a".to_string()).expect("core");
+        let files_dir = dir.path().join("files");
+        let cache_dir = dir.path().join("cache");
+        std::fs::create_dir_all(&files_dir).expect("files dir");
+        std::fs::create_dir_all(&cache_dir).expect("cache dir");
+        let core = AppCore::new(
+            files_dir.display().to_string(),
+            cache_dir.display().to_string(),
+            "phone-a".to_string(),
+        )
+        .expect("core");
         core.on_ui_action(UiAction::StartNearbyRequested).expect("start nearby");
         let commands = core.take_pending_commands().expect("commands");
         assert!(matches!(commands.as_slice(), [AndroidCommand::RequestPermissions]));
@@ -1153,7 +1100,16 @@ mod tests {
     #[test]
     fn permissions_granted_lead_to_attach_then_publish_subscribe() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let core = AppCore::new(dir.path().display().to_string(), "phone-a".to_string()).expect("core");
+        let files_dir = dir.path().join("files");
+        let cache_dir = dir.path().join("cache");
+        std::fs::create_dir_all(&files_dir).expect("files dir");
+        std::fs::create_dir_all(&cache_dir).expect("cache dir");
+        let core = AppCore::new(
+            files_dir.display().to_string(),
+            cache_dir.display().to_string(),
+            "phone-a".to_string(),
+        )
+        .expect("core");
         core.on_ui_action(UiAction::StartNearbyRequested).expect("start nearby");
         let _ = core.take_pending_commands().expect("initial commands");
         core.on_android_event(AndroidEvent::PermissionsGranted)
@@ -1177,8 +1133,17 @@ mod tests {
     #[test]
     fn clear_data_resets_feed() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let core = AppCore::new(dir.path().display().to_string(), "phone-a".to_string()).expect("core");
-        let temp = dir.path().join("capture.jpg");
+        let files_dir = dir.path().join("files");
+        let cache_dir = dir.path().join("cache");
+        std::fs::create_dir_all(&files_dir).expect("files dir");
+        std::fs::create_dir_all(&cache_dir).expect("cache dir");
+        let core = AppCore::new(
+            files_dir.display().to_string(),
+            cache_dir.display().to_string(),
+            "phone-a".to_string(),
+        )
+        .expect("core");
+        let temp = cache_dir.join("capture.jpg");
         std::fs::write(&temp, b"nearby-photo").expect("write temp");
         core.on_android_event(AndroidEvent::CameraCaptureCompleted {
             temp_path: temp.display().to_string(),
@@ -1194,10 +1159,19 @@ mod tests {
     }
 
     #[test]
-    fn broadcast_to_connected_peer_queues_set_and_photo_frames() {
+    fn broadcast_to_connected_peer_queues_root_announce() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let core = AppCore::new(dir.path().display().to_string(), "phone-a".to_string()).expect("core");
-        let temp = dir.path().join("capture.jpg");
+        let files_dir = dir.path().join("files");
+        let cache_dir = dir.path().join("cache");
+        std::fs::create_dir_all(&files_dir).expect("files dir");
+        std::fs::create_dir_all(&cache_dir).expect("cache dir");
+        let core = AppCore::new(
+            files_dir.display().to_string(),
+            cache_dir.display().to_string(),
+            "phone-a".to_string(),
+        )
+        .expect("core");
+        let temp = cache_dir.join("capture.jpg");
         std::fs::write(&temp, b"nearby-photo").expect("write temp");
         core.on_android_event(AndroidEvent::CameraCaptureCompleted {
             temp_path: temp.display().to_string(),
@@ -1220,11 +1194,10 @@ mod tests {
         })
         .expect("ready");
         let commands = core.take_pending_commands().expect("open initiator");
-        let connection_id =
-            match commands.as_slice() {
-                [AndroidCommand::OpenInitiator { connection_id, .. }] => *connection_id,
-                other => panic!("unexpected commands: {other:?}"),
-            };
+        let connection_id = match commands.as_slice() {
+            [AndroidCommand::OpenInitiator { connection_id, .. }] => *connection_id,
+            other => panic!("unexpected commands: {other:?}"),
+        };
 
         core.on_android_event(AndroidEvent::SocketConnected {
             connection_id,
@@ -1236,119 +1209,14 @@ mod tests {
         core.on_ui_action(UiAction::ShareAvailablePhotosRequested)
             .expect("broadcast");
         let commands = core.take_pending_commands().expect("broadcast commands");
-        assert_eq!(commands.len(), 2);
-        assert!(matches!(commands[0], AndroidCommand::WriteSocketBytes { .. }));
-        assert!(matches!(commands[1], AndroidCommand::WriteSocketBytes { .. }));
-    }
-
-    #[test]
-    fn broadcast_arms_before_socket_connect_and_starts_on_connect() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let core = AppCore::new(dir.path().display().to_string(), "phone-a".to_string()).expect("core");
-        let temp = dir.path().join("capture.jpg");
-        std::fs::write(&temp, b"nearby-photo").expect("write temp");
-        core.on_android_event(AndroidEvent::CameraCaptureCompleted {
-            temp_path: temp.display().to_string(),
-        })
-        .expect("capture completed");
-        core.on_android_event(AndroidEvent::AwareAttachSucceeded)
-            .expect("attach success");
-        let _ = core.take_pending_commands().expect("attach commands");
-
-        core.on_android_event(AndroidEvent::PeerDiscovered {
-            handle_id: 1,
-            instance: Some("phone-b".to_string()),
-        })
-        .expect("peer discovered");
-        let hello = core.take_pending_commands().expect("hello");
-        assert!(matches!(
-            hello.as_slice(),
-            [AndroidCommand::SendDiscoveryMessage { .. }]
-        ));
-
-        core.on_ui_action(UiAction::ShareAvailablePhotosRequested)
-            .expect("broadcast");
-        let commands = core.take_pending_commands().expect("armed broadcast");
-        assert!(commands.is_empty());
-
-        core.on_android_event(AndroidEvent::DiscoveryMessageReceived {
-            channel: crate::types::DiscoveryChannel::Subscribe,
-            handle_id: 1,
-            payload: "ready:phone-b".to_string(),
-        })
-        .expect("ready");
-        let commands = core.take_pending_commands().expect("open initiator");
-        let connection_id =
-            match commands.as_slice() {
-                [AndroidCommand::OpenInitiator { connection_id, .. }] => *connection_id,
-                other => panic!("unexpected commands: {other:?}"),
-            };
-
-        core.on_android_event(AndroidEvent::SocketConnected {
-            connection_id,
-            side: crate::types::SocketSide::Initiator,
-        })
-        .expect("socket connected");
-        let commands = core.take_pending_commands().expect("broadcast after connect");
-        assert_eq!(commands.len(), 2);
-        assert!(matches!(commands[0], AndroidCommand::WriteSocketBytes { .. }));
-        assert!(matches!(commands[1], AndroidCommand::WriteSocketBytes { .. }));
-    }
-
-    #[test]
-    fn initiator_capabilities_do_not_reconnect_after_socket_connect() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let core = AppCore::new(dir.path().display().to_string(), "phone-a".to_string()).expect("core");
-
-        core.on_android_event(AndroidEvent::AwareAttachSucceeded)
-            .expect("attach success");
-        let _ = core.take_pending_commands().expect("attach commands");
-
-        core.on_android_event(AndroidEvent::PeerDiscovered {
-            handle_id: 1,
-            instance: Some("phone-b".to_string()),
-        })
-        .expect("peer discovered");
-        let _ = core.take_pending_commands().expect("hello");
-
-        core.on_android_event(AndroidEvent::DiscoveryMessageReceived {
-            channel: crate::types::DiscoveryChannel::Subscribe,
-            handle_id: 1,
-            payload: "ready:phone-b".to_string(),
-        })
-        .expect("ready");
-        let commands = core.take_pending_commands().expect("open initiator");
-        let connection_id = match commands.as_slice() {
-            [AndroidCommand::OpenInitiator { connection_id, .. }] => *connection_id,
-            other => panic!("unexpected commands: {other:?}"),
+        assert_eq!(commands.len(), 1);
+        let message = match &commands[0] {
+            AndroidCommand::WriteSocketBytes { bytes, .. } => {
+                let mut decoder = FrameDecoder::default();
+                decoder.push(bytes).expect("decode").remove(0)
+            }
+            other => panic!("unexpected command: {other:?}"),
         };
-
-        core.on_android_event(AndroidEvent::InitiatorCapabilities {
-            connection_id,
-            port: 42801,
-            ipv6: Some("fe80::1".to_string()),
-        })
-        .expect("capabilities before connect");
-        let commands = core.take_pending_commands().expect("connect command");
-        assert!(matches!(
-            commands.as_slice(),
-            [AndroidCommand::ConnectInitiatorSocket { connection_id: id, .. }] if *id == connection_id
-        ));
-
-        core.on_android_event(AndroidEvent::SocketConnected {
-            connection_id,
-            side: crate::types::SocketSide::Initiator,
-        })
-        .expect("socket connected");
-        let _ = core.take_pending_commands().expect("post-connect commands");
-
-        core.on_android_event(AndroidEvent::InitiatorCapabilities {
-            connection_id,
-            port: 42801,
-            ipv6: Some("fe80::1".to_string()),
-        })
-        .expect("capabilities after connect");
-        let commands = core.take_pending_commands().expect("no reconnect command");
-        assert!(commands.is_empty(), "expected no reconnect, got {commands:?}");
+        assert!(matches!(message, WireMessage::RootAnnounce { .. }));
     }
 }

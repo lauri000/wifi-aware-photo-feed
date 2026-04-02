@@ -1,67 +1,64 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="980" height="520" viewBox="0 0 980 520" role="img" aria-labelledby="title desc">
   <title id="title">FIPS-0001 capture and store flow</title>
-  <desc id="desc">Flow diagram showing the camera capture path from UI action to local nhash-addressed storage.</desc>
+  <desc id="desc">Flow diagram showing camera capture, hashtree ingestion, feed root update, and render cache regeneration.</desc>
   <defs>
     <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth">
-      <path d="M 0 0 L 10 5 L 0 10 z" fill="#6b7280"/>
+      <path d="M0,0 L10,5 L0,10 z" fill="#355c7d"/>
     </marker>
     <style>
-      .bg { fill: #f8fafc; }
-      .step { fill: #ffffff; stroke: #cbd5e1; stroke-width: 2; rx: 16; ry: 16; }
-      .stepk { fill: #eff6ff; stroke: #2563eb; }
-      .stepr { fill: #fff7ed; stroke: #c2410c; }
-      .title { font: 700 24px Arial, sans-serif; fill: #0f172a; }
-      .label { font: 700 16px Arial, sans-serif; fill: #0f172a; }
-      .body { font: 14px Arial, sans-serif; fill: #334155; }
-      .mono { font: 13px 'Courier New', monospace; fill: #1e293b; }
-      .line { stroke: #6b7280; stroke-width: 2.5; fill: none; marker-end: url(#arrow); }
+      .bg { fill: #f7f4ef; }
+      .box { fill: #fffdf8; stroke: #9a8f7a; stroke-width: 2; rx: 16; }
+      .hot { fill: #f7e3c7; stroke: #b7791f; stroke-width: 2; rx: 14; }
+      .cool { fill: #ddebf7; stroke: #4c6f91; stroke-width: 2; rx: 14; }
+      .green { fill: #d9ead7; stroke: #4c7a57; stroke-width: 2; rx: 14; }
+      .title { font: 700 28px Arial, sans-serif; fill: #2d2d2d; }
+      .section { font: 700 20px Arial, sans-serif; fill: #2d2d2d; }
+      .body { font: 16px Arial, sans-serif; fill: #2d2d2d; }
+      .mono { font: 15px 'SFMono-Regular', Consolas, monospace; fill: #2d2d2d; }
+      .arrow { stroke: #355c7d; stroke-width: 3; fill: none; marker-end: url(#arrow); }
     </style>
   </defs>
 
   <rect class="bg" x="0" y="0" width="980" height="520"/>
-  <text class="title" x="36" y="40">FIPS-0001 Capture And Store Flow</text>
+  <text class="title" x="40" y="50">Capture And Persistent Store Flow</text>
 
-  <rect class="step stepk" x="40" y="90" width="180" height="90"/>
-  <text class="label" x="62" y="122">1. UI tap</text>
-  <text class="body" x="62" y="150">User taps</text>
-  <text class="mono" x="62" y="170">Take Photo</text>
+  <rect class="hot" x="60" y="110" width="220" height="140"/>
+  <text class="section" x="85" y="145">1. Android Camera</text>
+  <text class="body" x="85" y="180">Kotlin launches</text>
+  <text class="body" x="85" y="206">ACTION_IMAGE_CAPTURE</text>
+  <text class="mono" x="85" y="235">cache/capture/*.jpg</text>
 
-  <rect class="step stepr" x="270" y="90" width="220" height="110"/>
-  <text class="label" x="292" y="122">2. Rust action</text>
-  <text class="mono" x="292" y="150">UiAction::TakePhotoRequested</text>
-  <text class="body" x="292" y="175">allocates temp output path</text>
+  <rect class="green" x="380" y="90" width="240" height="180"/>
+  <text class="section" x="405" y="125">2. Rust Ingest</text>
+  <text class="body" x="405" y="160">PhotoStore opens temp JPEG</text>
+  <text class="body" x="405" y="188">HashTree.put_stream(...)</text>
+  <text class="body" x="405" y="216">creates photo CID</text>
+  <text class="body" x="405" y="244">and feed directory entry</text>
 
-  <rect class="step stepk" x="540" y="90" width="200" height="110"/>
-  <text class="label" x="562" y="122">3. Camera launch</text>
-  <text class="body" x="562" y="150">Kotlin executes</text>
-  <text class="mono" x="562" y="175">LaunchCameraCapture</text>
+  <rect class="cool" x="720" y="70" width="210" height="220"/>
+  <text class="section" x="745" y="105">3. Durable State</text>
+  <text class="mono" x="745" y="145">files/hashtree/blocks</text>
+  <text class="mono" x="745" y="175">local_feed_root.txt</text>
+  <text class="body" x="745" y="215">Temp capture file removed.</text>
+  <text class="body" x="745" y="243">Root now points at photo CID.</text>
 
-  <rect class="step stepk" x="770" y="90" width="170" height="110"/>
-  <text class="label" x="792" y="122">4. Android camera</text>
-  <text class="body" x="792" y="150">writes JPEG bytes to</text>
-  <text class="mono" x="792" y="175">files/demo/tmp/capture</text>
+  <rect class="box" x="380" y="330" width="240" height="130"/>
+  <text class="section" x="405" y="365">4. Feed Render Prep</text>
+  <text class="body" x="405" y="398">feed_items() calls</text>
+  <text class="body" x="405" y="424">ensure_render_cache(...)</text>
 
-  <rect class="step stepk" x="60" y="280" width="220" height="120"/>
-  <text class="label" x="82" y="312">5. Completion event</text>
-  <text class="mono" x="82" y="340">CameraCaptureCompleted</text>
-  <text class="body" x="82" y="365">temp path returned to Rust</text>
+  <rect class="cool" x="720" y="330" width="210" height="130"/>
+  <text class="section" x="745" y="365">5. UI Cache File</text>
+  <text class="mono" x="745" y="398">cache/render/&lt;cid&gt;.jpg</text>
+  <text class="body" x="745" y="426">BitmapFactory.decodeFile(...)</text>
 
-  <rect class="step stepr" x="350" y="260" width="280" height="160"/>
-  <text class="label" x="372" y="292">6. Rust finalization</text>
-  <text class="mono" x="372" y="320">finalize_captured_photo(...)</text>
-  <text class="body" x="372" y="348">- compute nhash via hashtree-core</text>
-  <text class="body" x="372" y="373">- copy to local/&lt;nhash&gt;.jpg</text>
-  <text class="body" x="372" y="398">- update local/manifest.json</text>
+  <path class="arrow" d="M280 180 L380 180"/>
+  <path class="arrow" d="M620 180 L720 180"/>
+  <path class="arrow" d="M500 270 L500 330"/>
+  <path class="arrow" d="M620 395 L720 395"/>
 
-  <rect class="step stepr" x="700" y="280" width="220" height="120"/>
-  <text class="label" x="722" y="312">7. View state</text>
-  <text class="body" x="722" y="340">Rust emits new</text>
-  <text class="mono" x="722" y="365">ViewState</text>
-
-  <path class="line" d="M 220 135 L 270 135"/>
-  <path class="line" d="M 490 145 L 540 145"/>
-  <path class="line" d="M 740 145 L 770 145"/>
-  <path class="line" d="M 855 200 L 855 245 L 170 245 L 170 280"/>
-  <path class="line" d="M 280 340 L 350 340"/>
-  <path class="line" d="M 630 340 L 700 340"/>
+  <text class="body" x="300" y="160">CameraCaptureCompleted</text>
+  <text class="body" x="645" y="160">persist blocks + root</text>
+  <text class="body" x="520" y="312">list feed</text>
+  <text class="body" x="635" y="377">rehydrate bytes</text>
 </svg>

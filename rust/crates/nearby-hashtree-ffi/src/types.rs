@@ -1,5 +1,3 @@
-use serde::{Deserialize, Serialize};
-
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
 pub enum UiPage {
     Feed,
@@ -134,10 +132,13 @@ pub struct ControlsEnabled {
 pub struct FeedItem {
     pub id: String,
     pub source_label: String,
+    pub source_device_id: String,
     pub created_at_ms: i64,
     pub size_bytes: u64,
-    pub nhash_suffix: String,
-    pub file_path: String,
+    pub photo_cid: String,
+    pub mime_type: String,
+    pub is_local: bool,
+    pub render_cache_path: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
@@ -152,24 +153,4 @@ pub struct ViewState {
     pub controls_enabled: ControlsEnabled,
     pub feed_items: Vec<FeedItem>,
     pub log_lines: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StoredPhoto {
-    pub id: String,
-    pub nhash: String,
-    pub size_bytes: u64,
-    pub created_at_ms: i64,
-    pub source_label: String,
-    pub mime_type: String,
-    pub relative_path: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct VerifyStoredPhotoResult {
-    pub success: bool,
-    pub actual_nhash: Option<String>,
-    pub already_present: bool,
-    pub message: String,
-    pub stored_photo: Option<StoredPhoto>,
 }

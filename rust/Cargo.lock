@@ -551,6 +551,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "hashtree-fs"
+version = "0.2.13"
+dependencies = [
+ "async-trait",
+ "hashtree-core",
+ "hex",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "heck"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -678,6 +690,7 @@ dependencies = [
  "bincode",
  "futures",
  "hashtree-core",
+ "hashtree-fs",
  "serde",
  "serde_json",
  "tempfile",

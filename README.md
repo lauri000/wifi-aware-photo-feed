@@ -1,6 +1,6 @@
 # nostr-wifi-aware
 
-`nostr-wifi-aware` is currently a simple Android-first local photo-sharing demo built on Wi-Fi Aware plus hashtree-addressed storage.
+`nostr-wifi-aware` is currently an Android-first local photo-sharing demo built on Wi-Fi Aware plus persistent hashtree storage.
 
 The Wi-Fi Aware service type is `_nostrwifiaware._tcp`, using DNS-SD service-type formatting so it is compatible with Apple's Wi-Fi Aware service declaration requirements as well.
 
@@ -95,7 +95,7 @@ scripts/stay-awake.sh status
 
 - The app package is `com.lauri000.nostrwifiaware`.
 - The app writes its event log both to the screen and to logcat under the tag `NostrWifiAware`.
-- The current peer-mode increment proves one thing: captured photos with real hashtree `nhash` values can be broadcast over a Wi-Fi Aware data path and verified on the receiving phone without manual host/client role selection.
+- The current increment persists captured photos as hashtree blocks under `files/hashtree/blocks`, persists the current feed root under `files/hashtree/roots/local_feed_root.txt`, and syncs nearby phones by announced root plus missing block hashes.
 - The app uses camera capture via intent handoff and app-private file storage. It does not read from the gallery.
 - For Wi-Fi Aware to work, keep the app open on both phones.
 - Wi-Fi should be on.
@@ -104,21 +104,22 @@ scripts/stay-awake.sh status
 
 ### Current State On This Machine
 
-As of April 3, 2026, the current increment built successfully and was verified end to end on two USB-connected Pixel 9a devices. One phone held a local photo collection, the other was cleared to zero photos, both phones entered nearby mode from `Settings`, and the sender tapped `Broadcast Photos` on `Feed`. The receiver then accepted the full collection automatically, logged receiver-side `nhash` verification for each photo, and stored the photos under `files/demo/received/<nhash>.jpg`.
+As of April 3, 2026, the current increment built successfully and was verified end to end on two USB-connected Pixel 9a devices. One phone held a local photo collection, the other was cleared to zero photos, both phones entered nearby mode from `Settings`, and the sender tapped `Broadcast Photos` on `Feed`. The receiver then accepted the announced feed root automatically, requested only its missing blocks, verified the remote root, merged the new photo entries into its own feed root, and persisted the result under `files/hashtree/blocks` plus `files/hashtree/roots/local_feed_root.txt`.
 
 ## Current Shape
 
 The current app is intentionally narrow:
 
 - capture photos with the camera
-- store them in app-private hashtree-addressed storage
-- exchange them directly between nearby phones over Wi-Fi Aware
-- verify every received file by recomputing its `nhash`
-- show both local and received photos in one simple feed
+- ingest them into app-private persistent hashtree storage
+- keep the feed itself as a persisted hashtree directory root
+- exchange roots and missing blocks directly between nearby phones over Wi-Fi Aware
+- verify each received root before merging it into the local feed
+- render feed images from disposable cache files rehydrated from the block store
 
 ## Next Likely Steps
 
-- add a tiny manifest so broadcasts can skip already-known nearby photos before transfer
+- make multi-peer broadcasting more explicit in the UI when several nearby phones are linked at once
 - add clearer repeated-broadcast dedupe/no-op reporting in the UI
 - add trust rules above nearby sync
 - move from this demo toward a richer local social photo app

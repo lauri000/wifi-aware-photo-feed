@@ -3,26 +3,22 @@ use serde::{Deserialize, Serialize};
 use crate::NearbyHashtreeError;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct WirePhoto {
-    pub id: String,
-    pub source_label: String,
-    pub created_at_ms: i64,
-    pub announced_nhash: String,
-    pub mime_type: String,
-    pub size_bytes: u64,
-    pub bytes: Vec<u8>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum WireMessage {
-    Set { label: String, count: u32 },
-    Photo { photo: WirePhoto },
-    Done { label: String, count: u32 },
-    Ack {
-        success: bool,
-        actual_nhash: Option<String>,
-        already_present: bool,
-        message: String,
+    RootAnnounce {
+        feed_root_nhash: String,
+        block_hashes: Vec<String>,
+        entry_count: u32,
+    },
+    BlockWant {
+        feed_root_nhash: String,
+        missing_hashes: Vec<String>,
+    },
+    BlockPut {
+        hash_hex: String,
+        bytes: Vec<u8>,
+    },
+    SyncDone {
+        feed_root_nhash: String,
     },
 }
 
@@ -74,13 +70,14 @@ impl FrameDecoder {
 
 #[cfg(test)]
 mod tests {
-    use super::{encode_frame, FrameDecoder, WireMessage, WirePhoto};
+    use super::{encode_frame, FrameDecoder, WireMessage};
 
     #[test]
     fn wire_round_trip() {
-        let message = WireMessage::Set {
-            label: "Local Instagram Feed".to_string(),
-            count: 2,
+        let message = WireMessage::RootAnnounce {
+            feed_root_nhash: "nhash1root".to_string(),
+            block_hashes: vec!["aa".to_string(), "bb".to_string()],
+            entry_count: 2,
         };
 
         let bytes = encode_frame(&message).expect("frame bytes");
@@ -91,16 +88,9 @@ mod tests {
 
     #[test]
     fn wire_partial_decode() {
-        let message = WireMessage::Photo {
-            photo: WirePhoto {
-                id: "photo-1".to_string(),
-                source_label: "Taken Here".to_string(),
-                created_at_ms: 1,
-                announced_nhash: "nhash1".to_string(),
-                mime_type: "image/jpeg".to_string(),
-                size_bytes: 3,
-                bytes: vec![1, 2, 3],
-            },
+        let message = WireMessage::BlockPut {
+            hash_hex: "ab".repeat(32),
+            bytes: vec![1, 2, 3],
         };
         let bytes = encode_frame(&message).expect("frame bytes");
         let split = bytes.len() / 2;
@@ -113,4 +103,3 @@ mod tests {
         assert_eq!(second, vec![message]);
     }
 }
-

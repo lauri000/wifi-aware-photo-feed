@@ -15,6 +15,7 @@ path = "src/bin/uniffi-bindgen.rs"
 
 [dependencies]
 hashtree-core.workspace = true
+hashtree-fs.workspace = true
 futures.workspace = true
 thiserror.workspace = true
 uniffi.workspace = true

@@ -1,72 +1,70 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="980" height="620" viewBox="0 0 980 620" role="img" aria-labelledby="title desc">
   <title id="title">FIPS-0001 fetch and render flow</title>
-  <desc id="desc">Flow diagram showing fetch from peer, wire messages, receiver-side nhash verification, and feed rendering.</desc>
+  <desc id="desc">Flow diagram showing root announcement, missing-block request, block transfer, root verification, merge, and render-cache based display.</desc>
   <defs>
     <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth">
-      <path d="M 0 0 L 10 5 L 0 10 z" fill="#6b7280"/>
+      <path d="M0,0 L10,5 L0,10 z" fill="#355c7d"/>
     </marker>
     <style>
-      .bg { fill: #f8fafc; }
-      .phone { fill: #ffffff; stroke: #cbd5e1; stroke-width: 2; rx: 18; ry: 18; }
-      .stepk { fill: #eff6ff; stroke: #2563eb; stroke-width: 2; rx: 14; ry: 14; }
-      .stepr { fill: #fff7ed; stroke: #c2410c; stroke-width: 2; rx: 14; ry: 14; }
-      .title { font: 700 24px Arial, sans-serif; fill: #0f172a; }
-      .label { font: 700 16px Arial, sans-serif; fill: #0f172a; }
-      .body { font: 14px Arial, sans-serif; fill: #334155; }
-      .mono { font: 13px 'Courier New', monospace; fill: #1e293b; }
-      .line { stroke: #6b7280; stroke-width: 2.5; fill: none; marker-end: url(#arrow); }
-      .dash { stroke: #94a3b8; stroke-width: 2; fill: none; stroke-dasharray: 7 6; marker-end: url(#arrow); }
+      .bg { fill: #f7f4ef; }
+      .left { fill: #f7e3c7; stroke: #b7791f; stroke-width: 2; rx: 14; }
+      .right { fill: #ddebf7; stroke: #4c6f91; stroke-width: 2; rx: 14; }
+      .mid { fill: #d9ead7; stroke: #4c7a57; stroke-width: 2; rx: 14; }
+      .title { font: 700 28px Arial, sans-serif; fill: #2d2d2d; }
+      .section { font: 700 20px Arial, sans-serif; fill: #2d2d2d; }
+      .body { font: 16px Arial, sans-serif; fill: #2d2d2d; }
+      .mono { font: 15px 'SFMono-Regular', Consolas, monospace; fill: #2d2d2d; }
+      .arrow { stroke: #355c7d; stroke-width: 3; fill: none; marker-end: url(#arrow); }
+      .dash { stroke: #5b5b5b; stroke-width: 2; fill: none; stroke-dasharray: 7 7; }
     </style>
   </defs>
 
   <rect class="bg" x="0" y="0" width="980" height="620"/>
-  <text class="title" x="36" y="40">FIPS-0001 Fetch, Verify, And Render Flow</text>
+  <text class="title" x="40" y="50">Nearby Root And Block Sync</text>
 
-  <rect class="phone" x="40" y="80" width="400" height="500"/>
-  <text class="label" x="62" y="112">Sender phone</text>
-  <text class="body" x="62" y="136">Has local or received photos already stored.</text>
+  <rect class="left" x="60" y="100" width="250" height="210"/>
+  <text class="section" x="85" y="135">Sender Phone</text>
+  <text class="body" x="85" y="170">- has current feed root</text>
+  <text class="body" x="85" y="198">- enumerates root block hashes</text>
+  <text class="body" x="85" y="226">- serves requested blocks</text>
+  <text class="mono" x="85" y="265">RootAnnounce</text>
+  <text class="mono" x="85" y="290">BlockPut</text>
 
-  <rect class="phone" x="540" y="80" width="400" height="500"/>
-  <text class="label" x="562" y="112">Receiver phone</text>
-  <text class="body" x="562" y="136">Requests and displays the nearby feed.</text>
+  <rect class="mid" x="365" y="90" width="250" height="230"/>
+  <text class="section" x="390" y="125">Wi-Fi Aware Socket</text>
+  <text class="body" x="390" y="160">Discovery handshake</text>
+  <text class="body" x="390" y="188">Publisher / subscriber setup</text>
+  <text class="body" x="390" y="216">TCP over Aware data path</text>
+  <text class="body" x="390" y="244">Length-prefixed frames</text>
+  <text class="mono" x="390" y="282">RootAnnounce / BlockWant / BlockPut / SyncDone</text>
 
-  <rect class="stepr" x="80" y="180" width="320" height="90"/>
-  <text class="label" x="102" y="212">Rust sender core</text>
-  <text class="body" x="102" y="238">builds outbound transfer set</text>
-  <text class="mono" x="102" y="258">Set -&gt; Photo* -&gt; Done</text>
+  <rect class="right" x="670" y="100" width="250" height="210"/>
+  <text class="section" x="695" y="135">Receiver Phone</text>
+  <text class="body" x="695" y="170">- compares hash list with local store</text>
+  <text class="body" x="695" y="198">- asks only for missing blocks</text>
+  <text class="body" x="695" y="226">- verifies remote root integrity</text>
+  <text class="mono" x="695" y="265">BlockWant</text>
+  <text class="mono" x="695" y="290">SyncDone</text>
 
-  <rect class="stepk" x="580" y="180" width="320" height="90"/>
-  <text class="label" x="602" y="212">Kotlin receiver UI</text>
-  <text class="body" x="602" y="238">user taps</text>
-  <text class="mono" x="602" y="258">Fetch From Peer</text>
+  <rect class="right" x="670" y="390" width="250" height="150"/>
+  <text class="section" x="695" y="425">Post-Verify Merge</text>
+  <text class="body" x="695" y="460">- merge remote entries by photo hash</text>
+  <text class="body" x="695" y="488">- persist new local_feed_root.txt</text>
+  <text class="body" x="695" y="516">- regenerate cache/render for UI</text>
 
-  <rect class="stepk" x="580" y="320" width="320" height="100"/>
-  <text class="label" x="602" y="352">Receiver adapter</text>
-  <text class="body" x="602" y="378">Wi-Fi Aware data path and socket stay live;</text>
-  <text class="body" x="602" y="400">incoming bytes become AndroidEvent::SocketRead</text>
+  <rect class="left" x="60" y="390" width="250" height="150"/>
+  <text class="section" x="85" y="425">Sender Store</text>
+  <text class="mono" x="85" y="460">files/hashtree/blocks</text>
+  <text class="mono" x="85" y="488">files/hashtree/roots/local_feed_root.txt</text>
 
-  <rect class="stepr" x="80" y="320" width="320" height="100"/>
-  <text class="label" x="102" y="352">Wire protocol</text>
-  <text class="mono" x="102" y="378">encode_frame(WireMessage)</text>
-  <text class="mono" x="102" y="400">FrameDecoder::push(bytes)</text>
+  <path class="arrow" d="M310 175 L365 175"/>
+  <path class="arrow" d="M670 235 L615 235"/>
+  <path class="arrow" d="M615 265 L670 265"/>
+  <path class="arrow" d="M310 490 L670 490"/>
+  <path class="dash" d="M795 310 L795 390"/>
 
-  <rect class="stepr" x="580" y="460" width="320" height="90"/>
-  <text class="label" x="602" y="492">Rust receiver core</text>
-  <text class="body" x="602" y="518">writes tmp file, recomputes nhash,</text>
-  <text class="body" x="602" y="540">stores or marks already present</text>
-
-  <rect class="stepk" x="80" y="460" width="320" height="90"/>
-  <text class="label" x="102" y="492">Kotlin feed renderer</text>
-  <text class="body" x="102" y="518">later decodes</text>
-  <text class="mono" x="102" y="538">file_path -&gt; BitmapFactory -&gt; ImageView</text>
-
-  <path class="dash" d="M 740 270 L 740 320"/>
-  <path class="line" d="M 580 225 L 400 225"/>
-  <text class="body" x="452" y="214">fetch:</text>
-  <path class="line" d="M 400 370 L 580 370"/>
-  <text class="body" x="440" y="359">Set / Photo / Done</text>
-  <path class="line" d="M 580 510 L 400 510"/>
-  <text class="body" x="454" y="499">Ack</text>
-  <path class="dash" d="M 580 550 L 400 550 L 400 505"/>
-  <text class="body" x="420" y="570">FeedItem.file_path returned in ViewState</text>
+  <text class="body" x="322" y="158">announce root + hashes</text>
+  <text class="body" x="470" y="228">missing list back</text>
+  <text class="body" x="470" y="285">requested blocks forward</text>
+  <text class="body" x="430" y="472">verified merge updates receiver feed</text>
 </svg>

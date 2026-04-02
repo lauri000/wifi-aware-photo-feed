@@ -171,7 +171,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         wifiAwareManager = getSystemService(WIFI_AWARE_SERVICE) as WifiAwareManager
         connectivityManager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
-        appCore = AppCore(filesDir.absolutePath, appInstance)
+        appCore = AppCore(filesDir.absolutePath, cacheDir.absolutePath, appInstance)
 
         setContentView(buildUi())
         renderView(appCore.currentViewState())
@@ -584,7 +584,7 @@ class MainActivity : Activity() {
 
         val feedSignature =
             feedItems.joinToString("|") { item ->
-                "${item.filePath}:${item.createdAtMs}:${item.nhashSuffix}:${item.sourceLabel}"
+                "${item.renderCachePath}:${item.createdAtMs}:${item.photoCid}:${item.sourceLabel}:${item.isLocal}"
             }
         if (feedSignature == renderedFeedSignature) {
             feedEmptyView.visibility = View.GONE
@@ -1100,7 +1100,7 @@ class MainActivity : Activity() {
 
     private fun createPhotoCard(item: FeedItem): View {
         val sourceAccent =
-            if (item.sourceLabel.contains("Taken Here", ignoreCase = true)) {
+            if (item.isLocal) {
                 parseColor("#fb923c")
             } else {
                 parseColor("#38bdf8")
@@ -1110,7 +1110,7 @@ class MainActivity : Activity() {
                 layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(280))
                 scaleType = ImageView.ScaleType.CENTER_CROP
                 background = roundedFill(parseColor("#0d1422"), parseColor("#26344a"), dp(24))
-                setImageBitmap(loadPreviewBitmap(File(item.filePath), 1080, 720))
+                setImageBitmap(loadPreviewBitmap(File(item.renderCachePath), 1080, 720))
                 clipToOutline = true
             }
 
@@ -1127,7 +1127,7 @@ class MainActivity : Activity() {
             addView(spacer(dp(12)))
             addView(
                 TextView(this@MainActivity).apply {
-                    text = item.id
+                    text = if (item.isLocal) "Your Photo" else "Nearby Photo"
                     textSize = 20f
                     setTextColor(Color.WHITE)
                     setTypeface(Typeface.SERIF, Typeface.BOLD)
@@ -1144,8 +1144,8 @@ class MainActivity : Activity() {
             addView(spacer(dp(10)))
             addView(
                 tagRow(
-                    buildTag("nhash ${item.nhashSuffix}", "#0f172a", "#334155"),
-                    buildTag("local-first jpeg", "#0f172a", "#3b82f6"),
+                    buildTag(item.sourceLabel.uppercase(Locale.US), "#0f172a", "#334155"),
+                    buildTag("cid ${item.photoCid.takeLast(12)}", "#0f172a", "#3b82f6"),
                 ),
             )
         }

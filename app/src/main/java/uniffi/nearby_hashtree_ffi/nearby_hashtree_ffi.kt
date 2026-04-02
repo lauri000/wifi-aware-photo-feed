@@ -724,8 +724,6 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
-
-
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
 
@@ -749,7 +747,7 @@ internal interface UniffiLib : Library {
     ): Pointer
     fun uniffi_nearby_hashtree_ffi_fn_free_appcore(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
-    fun uniffi_nearby_hashtree_ffi_fn_constructor_appcore_new(`appFilesDir`: RustBuffer.ByValue,`appInstance`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    fun uniffi_nearby_hashtree_ffi_fn_constructor_appcore_new(`appFilesDir`: RustBuffer.ByValue,`appCacheDir`: RustBuffer.ByValue,`appInstance`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Pointer
     fun uniffi_nearby_hashtree_ffi_fn_method_appcore_current_view_state(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -758,8 +756,6 @@ internal interface UniffiLib : Library {
     fun uniffi_nearby_hashtree_ffi_fn_method_appcore_on_ui_action(`ptr`: Pointer,`action`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     fun uniffi_nearby_hashtree_ffi_fn_method_appcore_take_pending_commands(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
-    ): RustBuffer.ByValue
-    fun uniffi_nearby_hashtree_ffi_fn_func_compute_nhash_from_file(`filePath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun ffi_nearby_hashtree_ffi_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -873,8 +869,6 @@ internal interface UniffiLib : Library {
     ): Unit
     fun ffi_nearby_hashtree_ffi_rust_future_complete_void(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
-    fun uniffi_nearby_hashtree_ffi_checksum_func_compute_nhash_from_file(
-    ): Short
     fun uniffi_nearby_hashtree_ffi_checksum_method_appcore_current_view_state(
     ): Short
     fun uniffi_nearby_hashtree_ffi_checksum_method_appcore_on_android_event(
@@ -902,9 +896,6 @@ private fun uniffiCheckContractApiVersion(lib: UniffiLib) {
 
 @Suppress("UNUSED_PARAMETER")
 private fun uniffiCheckApiChecksums(lib: UniffiLib) {
-    if (lib.uniffi_nearby_hashtree_ffi_checksum_func_compute_nhash_from_file() != 2303.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
     if (lib.uniffi_nearby_hashtree_ffi_checksum_method_appcore_current_view_state() != 46705.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -917,7 +908,7 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_nearby_hashtree_ffi_checksum_method_appcore_take_pending_commands() != 45451.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_nearby_hashtree_ffi_checksum_constructor_appcore_new() != 49707.toShort()) {
+    if (lib.uniffi_nearby_hashtree_ffi_checksum_constructor_appcore_new() != 20234.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
 }
@@ -1327,11 +1318,11 @@ open class AppCore: Disposable, AutoCloseable, AppCoreInterface {
         this.pointer = null
         this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(pointer))
     }
-    constructor(`appFilesDir`: kotlin.String, `appInstance`: kotlin.String) :
+    constructor(`appFilesDir`: kotlin.String, `appCacheDir`: kotlin.String, `appInstance`: kotlin.String) :
         this(
     uniffiRustCallWithError(NearbyHashtreeException) { _status ->
     UniffiLib.INSTANCE.uniffi_nearby_hashtree_ffi_fn_constructor_appcore_new(
-        FfiConverterString.lower(`appFilesDir`),FfiConverterString.lower(`appInstance`),_status)
+        FfiConverterString.lower(`appFilesDir`),FfiConverterString.lower(`appCacheDir`),FfiConverterString.lower(`appInstance`),_status)
 }
     )
 
@@ -1537,10 +1528,13 @@ public object FfiConverterTypeControlsEnabled: FfiConverterRustBuffer<ControlsEn
 data class FeedItem (
     var `id`: kotlin.String, 
     var `sourceLabel`: kotlin.String, 
+    var `sourceDeviceId`: kotlin.String, 
     var `createdAtMs`: kotlin.Long, 
     var `sizeBytes`: kotlin.ULong, 
-    var `nhashSuffix`: kotlin.String, 
-    var `filePath`: kotlin.String
+    var `photoCid`: kotlin.String, 
+    var `mimeType`: kotlin.String, 
+    var `isLocal`: kotlin.Boolean, 
+    var `renderCachePath`: kotlin.String
 ) {
     
     companion object
@@ -1554,9 +1548,12 @@ public object FfiConverterTypeFeedItem: FfiConverterRustBuffer<FeedItem> {
         return FeedItem(
             FfiConverterString.read(buf),
             FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
             FfiConverterLong.read(buf),
             FfiConverterULong.read(buf),
             FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterBoolean.read(buf),
             FfiConverterString.read(buf),
         )
     }
@@ -1564,19 +1561,25 @@ public object FfiConverterTypeFeedItem: FfiConverterRustBuffer<FeedItem> {
     override fun allocationSize(value: FeedItem) = (
             FfiConverterString.allocationSize(value.`id`) +
             FfiConverterString.allocationSize(value.`sourceLabel`) +
+            FfiConverterString.allocationSize(value.`sourceDeviceId`) +
             FfiConverterLong.allocationSize(value.`createdAtMs`) +
             FfiConverterULong.allocationSize(value.`sizeBytes`) +
-            FfiConverterString.allocationSize(value.`nhashSuffix`) +
-            FfiConverterString.allocationSize(value.`filePath`)
+            FfiConverterString.allocationSize(value.`photoCid`) +
+            FfiConverterString.allocationSize(value.`mimeType`) +
+            FfiConverterBoolean.allocationSize(value.`isLocal`) +
+            FfiConverterString.allocationSize(value.`renderCachePath`)
     )
 
     override fun write(value: FeedItem, buf: ByteBuffer) {
             FfiConverterString.write(value.`id`, buf)
             FfiConverterString.write(value.`sourceLabel`, buf)
+            FfiConverterString.write(value.`sourceDeviceId`, buf)
             FfiConverterLong.write(value.`createdAtMs`, buf)
             FfiConverterULong.write(value.`sizeBytes`, buf)
-            FfiConverterString.write(value.`nhashSuffix`, buf)
-            FfiConverterString.write(value.`filePath`, buf)
+            FfiConverterString.write(value.`photoCid`, buf)
+            FfiConverterString.write(value.`mimeType`, buf)
+            FfiConverterBoolean.write(value.`isLocal`, buf)
+            FfiConverterString.write(value.`renderCachePath`, buf)
     }
 }
 
@@ -2814,14 +2817,4 @@ public object FfiConverterSequenceTypeAndroidCommand: FfiConverterRustBuffer<Lis
         }
     }
 }
-    @Throws(NearbyHashtreeException::class) fun `computeNhashFromFile`(`filePath`: kotlin.String): kotlin.String {
-            return FfiConverterString.lift(
-    uniffiRustCallWithError(NearbyHashtreeException) { _status ->
-    UniffiLib.INSTANCE.uniffi_nearby_hashtree_ffi_fn_func_compute_nhash_from_file(
-        FfiConverterString.lower(`filePath`),_status)
-}
-    )
-    }
-    
-
 
