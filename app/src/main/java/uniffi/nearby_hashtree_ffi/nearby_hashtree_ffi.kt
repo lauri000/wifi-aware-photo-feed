@@ -30,6 +30,7 @@ import java.nio.CharBuffer
 import java.nio.charset.CodingErrorAction
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 
 // This is a helper for safely working with byte buffers returned from the Rust code.
 // A rust-owned buffer is represented by its capacity, its current length, and a
@@ -713,6 +714,18 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
 
@@ -726,8 +739,26 @@ internal interface UniffiLib : Library {
                 }
         }
         
+        // The Cleaner for the whole library
+        internal val CLEANER: UniffiCleaner by lazy {
+            UniffiCleaner.create()
+        }
     }
 
+    fun uniffi_nearby_hashtree_ffi_fn_clone_appcore(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+    ): Pointer
+    fun uniffi_nearby_hashtree_ffi_fn_free_appcore(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    fun uniffi_nearby_hashtree_ffi_fn_constructor_appcore_new(`appFilesDir`: RustBuffer.ByValue,`appInstance`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Pointer
+    fun uniffi_nearby_hashtree_ffi_fn_method_appcore_current_view_state(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    fun uniffi_nearby_hashtree_ffi_fn_method_appcore_on_android_event(`ptr`: Pointer,`event`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    fun uniffi_nearby_hashtree_ffi_fn_method_appcore_on_ui_action(`ptr`: Pointer,`action`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    fun uniffi_nearby_hashtree_ffi_fn_method_appcore_take_pending_commands(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     fun uniffi_nearby_hashtree_ffi_fn_func_compute_nhash_from_file(`filePath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     fun ffi_nearby_hashtree_ffi_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -844,6 +875,16 @@ internal interface UniffiLib : Library {
     ): Unit
     fun uniffi_nearby_hashtree_ffi_checksum_func_compute_nhash_from_file(
     ): Short
+    fun uniffi_nearby_hashtree_ffi_checksum_method_appcore_current_view_state(
+    ): Short
+    fun uniffi_nearby_hashtree_ffi_checksum_method_appcore_on_android_event(
+    ): Short
+    fun uniffi_nearby_hashtree_ffi_checksum_method_appcore_on_ui_action(
+    ): Short
+    fun uniffi_nearby_hashtree_ffi_checksum_method_appcore_take_pending_commands(
+    ): Short
+    fun uniffi_nearby_hashtree_ffi_checksum_constructor_appcore_new(
+    ): Short
     fun ffi_nearby_hashtree_ffi_uniffi_contract_version(
     ): Int
     
@@ -862,6 +903,21 @@ private fun uniffiCheckContractApiVersion(lib: UniffiLib) {
 @Suppress("UNUSED_PARAMETER")
 private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_nearby_hashtree_ffi_checksum_func_compute_nhash_from_file() != 2303.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nearby_hashtree_ffi_checksum_method_appcore_current_view_state() != 46705.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nearby_hashtree_ffi_checksum_method_appcore_on_android_event() != 1557.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nearby_hashtree_ffi_checksum_method_appcore_on_ui_action() != 26334.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nearby_hashtree_ffi_checksum_method_appcore_take_pending_commands() != 45451.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nearby_hashtree_ffi_checksum_constructor_appcore_new() != 49707.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
 }
@@ -910,6 +966,98 @@ inline fun <T : Disposable?, R> T.use(block: (T) -> R) =
  * @suppress
  * */
 object NoPointer
+
+/**
+ * @suppress
+ */
+public object FfiConverterInt: FfiConverter<Int, Int> {
+    override fun lift(value: Int): Int {
+        return value
+    }
+
+    override fun read(buf: ByteBuffer): Int {
+        return buf.getInt()
+    }
+
+    override fun lower(value: Int): Int {
+        return value
+    }
+
+    override fun allocationSize(value: Int) = 4UL
+
+    override fun write(value: Int, buf: ByteBuffer) {
+        buf.putInt(value)
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterULong: FfiConverter<ULong, Long> {
+    override fun lift(value: Long): ULong {
+        return value.toULong()
+    }
+
+    override fun read(buf: ByteBuffer): ULong {
+        return lift(buf.getLong())
+    }
+
+    override fun lower(value: ULong): Long {
+        return value.toLong()
+    }
+
+    override fun allocationSize(value: ULong) = 8UL
+
+    override fun write(value: ULong, buf: ByteBuffer) {
+        buf.putLong(value.toLong())
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterLong: FfiConverter<Long, Long> {
+    override fun lift(value: Long): Long {
+        return value
+    }
+
+    override fun read(buf: ByteBuffer): Long {
+        return buf.getLong()
+    }
+
+    override fun lower(value: Long): Long {
+        return value
+    }
+
+    override fun allocationSize(value: Long) = 8UL
+
+    override fun write(value: Long, buf: ByteBuffer) {
+        buf.putLong(value)
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterBoolean: FfiConverter<Boolean, Byte> {
+    override fun lift(value: Byte): Boolean {
+        return value.toInt() != 0
+    }
+
+    override fun read(buf: ByteBuffer): Boolean {
+        return lift(buf.get())
+    }
+
+    override fun lower(value: Boolean): Byte {
+        return if (value) 1.toByte() else 0.toByte()
+    }
+
+    override fun allocationSize(value: Boolean) = 1UL
+
+    override fun write(value: Boolean, buf: ByteBuffer) {
+        buf.put(lower(value))
+    }
+}
 
 /**
  * @suppress
@@ -968,6 +1116,1312 @@ public object FfiConverterString: FfiConverter<String, RustBuffer.ByValue> {
     }
 }
 
+/**
+ * @suppress
+ */
+public object FfiConverterByteArray: FfiConverterRustBuffer<ByteArray> {
+    override fun read(buf: ByteBuffer): ByteArray {
+        val len = buf.getInt()
+        val byteArr = ByteArray(len)
+        buf.get(byteArr)
+        return byteArr
+    }
+    override fun allocationSize(value: ByteArray): ULong {
+        return 4UL + value.size.toULong()
+    }
+    override fun write(value: ByteArray, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        buf.put(value)
+    }
+}
+
+
+// This template implements a class for working with a Rust struct via a Pointer/Arc<T>
+// to the live Rust struct on the other side of the FFI.
+//
+// Each instance implements core operations for working with the Rust `Arc<T>` and the
+// Kotlin Pointer to work with the live Rust struct on the other side of the FFI.
+//
+// There's some subtlety here, because we have to be careful not to operate on a Rust
+// struct after it has been dropped, and because we must expose a public API for freeing
+// theq Kotlin wrapper object in lieu of reliable finalizers. The core requirements are:
+//
+//   * Each instance holds an opaque pointer to the underlying Rust struct.
+//     Method calls need to read this pointer from the object's state and pass it in to
+//     the Rust FFI.
+//
+//   * When an instance is no longer needed, its pointer should be passed to a
+//     special destructor function provided by the Rust FFI, which will drop the
+//     underlying Rust struct.
+//
+//   * Given an instance, calling code is expected to call the special
+//     `destroy` method in order to free it after use, either by calling it explicitly
+//     or by using a higher-level helper like the `use` method. Failing to do so risks
+//     leaking the underlying Rust struct.
+//
+//   * We can't assume that calling code will do the right thing, and must be prepared
+//     to handle Kotlin method calls executing concurrently with or even after a call to
+//     `destroy`, and to handle multiple (possibly concurrent!) calls to `destroy`.
+//
+//   * We must never allow Rust code to operate on the underlying Rust struct after
+//     the destructor has been called, and must never call the destructor more than once.
+//     Doing so may trigger memory unsafety.
+//
+//   * To mitigate many of the risks of leaking memory and use-after-free unsafety, a `Cleaner`
+//     is implemented to call the destructor when the Kotlin object becomes unreachable.
+//     This is done in a background thread. This is not a panacea, and client code should be aware that
+//      1. the thread may starve if some there are objects that have poorly performing
+//     `drop` methods or do significant work in their `drop` methods.
+//      2. the thread is shared across the whole library. This can be tuned by using `android_cleaner = true`,
+//         or `android = true` in the [`kotlin` section of the `uniffi.toml` file](https://mozilla.github.io/uniffi-rs/kotlin/configuration.html).
+//
+// If we try to implement this with mutual exclusion on access to the pointer, there is the
+// possibility of a race between a method call and a concurrent call to `destroy`:
+//
+//    * Thread A starts a method call, reads the value of the pointer, but is interrupted
+//      before it can pass the pointer over the FFI to Rust.
+//    * Thread B calls `destroy` and frees the underlying Rust struct.
+//    * Thread A resumes, passing the already-read pointer value to Rust and triggering
+//      a use-after-free.
+//
+// One possible solution would be to use a `ReadWriteLock`, with each method call taking
+// a read lock (and thus allowed to run concurrently) and the special `destroy` method
+// taking a write lock (and thus blocking on live method calls). However, we aim not to
+// generate methods with any hidden blocking semantics, and a `destroy` method that might
+// block if called incorrectly seems to meet that bar.
+//
+// So, we achieve our goals by giving each instance an associated `AtomicLong` counter to track
+// the number of in-flight method calls, and an `AtomicBoolean` flag to indicate whether `destroy`
+// has been called. These are updated according to the following rules:
+//
+//    * The initial value of the counter is 1, indicating a live object with no in-flight calls.
+//      The initial value for the flag is false.
+//
+//    * At the start of each method call, we atomically check the counter.
+//      If it is 0 then the underlying Rust struct has already been destroyed and the call is aborted.
+//      If it is nonzero them we atomically increment it by 1 and proceed with the method call.
+//
+//    * At the end of each method call, we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+//    * When `destroy` is called, we atomically flip the flag from false to true.
+//      If the flag was already true we silently fail.
+//      Otherwise we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+// Astute readers may observe that this all sounds very similar to the way that Rust's `Arc<T>` works,
+// and indeed it is, with the addition of a flag to guard against multiple calls to `destroy`.
+//
+// The overall effect is that the underlying Rust struct is destroyed only when `destroy` has been
+// called *and* all in-flight method calls have completed, avoiding violating any of the expectations
+// of the underlying Rust code.
+//
+// This makes a cleaner a better alternative to _not_ calling `destroy()` as
+// and when the object is finished with, but the abstraction is not perfect: if the Rust object's `drop`
+// method is slow, and/or there are many objects to cleanup, and it's on a low end Android device, then the cleaner
+// thread may be starved, and the app will leak memory.
+//
+// In this case, `destroy`ing manually may be a better solution.
+//
+// The cleaner can live side by side with the manual calling of `destroy`. In the order of responsiveness, uniffi objects
+// with Rust peers are reclaimed:
+//
+// 1. By calling the `destroy` method of the object, which calls `rustObject.free()`. If that doesn't happen:
+// 2. When the object becomes unreachable, AND the Cleaner thread gets to call `rustObject.free()`. If the thread is starved then:
+// 3. The memory is reclaimed when the process terminates.
+//
+// [1] https://stackoverflow.com/questions/24376768/can-java-finalize-an-object-when-it-is-still-in-scope/24380219
+//
+
+
+/**
+ * The cleaner interface for Object finalization code to run.
+ * This is the entry point to any implementation that we're using.
+ *
+ * The cleaner registers objects and returns cleanables, so now we are
+ * defining a `UniffiCleaner` with a `UniffiClenaer.Cleanable` to abstract the
+ * different implmentations available at compile time.
+ *
+ * @suppress
+ */
+interface UniffiCleaner {
+    interface Cleanable {
+        fun clean()
+    }
+
+    fun register(value: Any, cleanUpTask: Runnable): UniffiCleaner.Cleanable
+
+    companion object
+}
+
+// The fallback Jna cleaner, which is available for both Android, and the JVM.
+private class UniffiJnaCleaner : UniffiCleaner {
+    private val cleaner = com.sun.jna.internal.Cleaner.getCleaner()
+
+    override fun register(value: Any, cleanUpTask: Runnable): UniffiCleaner.Cleanable =
+        UniffiJnaCleanable(cleaner.register(value, cleanUpTask))
+}
+
+private class UniffiJnaCleanable(
+    private val cleanable: com.sun.jna.internal.Cleaner.Cleanable,
+) : UniffiCleaner.Cleanable {
+    override fun clean() = cleanable.clean()
+}
+
+// We decide at uniffi binding generation time whether we were
+// using Android or not.
+// There are further runtime checks to chose the correct implementation
+// of the cleaner.
+private fun UniffiCleaner.Companion.create(): UniffiCleaner =
+    try {
+        // For safety's sake: if the library hasn't been run in android_cleaner = true
+        // mode, but is being run on Android, then we still need to think about
+        // Android API versions.
+        // So we check if java.lang.ref.Cleaner is there, and use that…
+        java.lang.Class.forName("java.lang.ref.Cleaner")
+        JavaLangRefCleaner()
+    } catch (e: ClassNotFoundException) {
+        // … otherwise, fallback to the JNA cleaner.
+        UniffiJnaCleaner()
+    }
+
+private class JavaLangRefCleaner : UniffiCleaner {
+    val cleaner = java.lang.ref.Cleaner.create()
+
+    override fun register(value: Any, cleanUpTask: Runnable): UniffiCleaner.Cleanable =
+        JavaLangRefCleanable(cleaner.register(value, cleanUpTask))
+}
+
+private class JavaLangRefCleanable(
+    val cleanable: java.lang.ref.Cleaner.Cleanable
+) : UniffiCleaner.Cleanable {
+    override fun clean() = cleanable.clean()
+}
+public interface AppCoreInterface {
+    
+    fun `currentViewState`(): ViewState
+    
+    fun `onAndroidEvent`(`event`: AndroidEvent)
+    
+    fun `onUiAction`(`action`: UiAction)
+    
+    fun `takePendingCommands`(): List<AndroidCommand>
+    
+    companion object
+}
+
+open class AppCore: Disposable, AutoCloseable, AppCoreInterface {
+
+    constructor(pointer: Pointer) {
+        this.pointer = pointer
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(pointer))
+    }
+
+    /**
+     * This constructor can be used to instantiate a fake object. Only used for tests. Any
+     * attempt to actually use an object constructed this way will fail as there is no
+     * connected Rust object.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    constructor(noPointer: NoPointer) {
+        this.pointer = null
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(pointer))
+    }
+    constructor(`appFilesDir`: kotlin.String, `appInstance`: kotlin.String) :
+        this(
+    uniffiRustCallWithError(NearbyHashtreeException) { _status ->
+    UniffiLib.INSTANCE.uniffi_nearby_hashtree_ffi_fn_constructor_appcore_new(
+        FfiConverterString.lower(`appFilesDir`),FfiConverterString.lower(`appInstance`),_status)
+}
+    )
+
+    protected val pointer: Pointer?
+    protected val cleanable: UniffiCleaner.Cleanable
+
+    private val wasDestroyed = AtomicBoolean(false)
+    private val callCounter = AtomicLong(1)
+
+    override fun destroy() {
+        // Only allow a single call to this method.
+        // TODO: maybe we should log a warning if called more than once?
+        if (this.wasDestroyed.compareAndSet(false, true)) {
+            // This decrement always matches the initial count of 1 given at creation time.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable.clean()
+            }
+        }
+    }
+
+    @Synchronized
+    override fun close() {
+        this.destroy()
+    }
+
+    internal inline fun <R> callWithPointer(block: (ptr: Pointer) -> R): R {
+        // Check and increment the call counter, to keep the object alive.
+        // This needs a compare-and-set retry loop in case of concurrent updates.
+        do {
+            val c = this.callCounter.get()
+            if (c == 0L) {
+                throw IllegalStateException("${this.javaClass.simpleName} object has already been destroyed")
+            }
+            if (c == Long.MAX_VALUE) {
+                throw IllegalStateException("${this.javaClass.simpleName} call counter would overflow")
+            }
+        } while (! this.callCounter.compareAndSet(c, c + 1L))
+        // Now we can safely do the method call without the pointer being freed concurrently.
+        try {
+            return block(this.uniffiClonePointer())
+        } finally {
+            // This decrement always matches the increment we performed above.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable.clean()
+            }
+        }
+    }
+
+    // Use a static inner class instead of a closure so as not to accidentally
+    // capture `this` as part of the cleanable's action.
+    private class UniffiCleanAction(private val pointer: Pointer?) : Runnable {
+        override fun run() {
+            pointer?.let { ptr ->
+                uniffiRustCall { status ->
+                    UniffiLib.INSTANCE.uniffi_nearby_hashtree_ffi_fn_free_appcore(ptr, status)
+                }
+            }
+        }
+    }
+
+    fun uniffiClonePointer(): Pointer {
+        return uniffiRustCall() { status ->
+            UniffiLib.INSTANCE.uniffi_nearby_hashtree_ffi_fn_clone_appcore(pointer!!, status)
+        }
+    }
+
+    
+    @Throws(NearbyHashtreeException::class)override fun `currentViewState`(): ViewState {
+            return FfiConverterTypeViewState.lift(
+    callWithPointer {
+    uniffiRustCallWithError(NearbyHashtreeException) { _status ->
+    UniffiLib.INSTANCE.uniffi_nearby_hashtree_ffi_fn_method_appcore_current_view_state(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+    @Throws(NearbyHashtreeException::class)override fun `onAndroidEvent`(`event`: AndroidEvent)
+        = 
+    callWithPointer {
+    uniffiRustCallWithError(NearbyHashtreeException) { _status ->
+    UniffiLib.INSTANCE.uniffi_nearby_hashtree_ffi_fn_method_appcore_on_android_event(
+        it, FfiConverterTypeAndroidEvent.lower(`event`),_status)
+}
+    }
+    
+    
+
+    
+    @Throws(NearbyHashtreeException::class)override fun `onUiAction`(`action`: UiAction)
+        = 
+    callWithPointer {
+    uniffiRustCallWithError(NearbyHashtreeException) { _status ->
+    UniffiLib.INSTANCE.uniffi_nearby_hashtree_ffi_fn_method_appcore_on_ui_action(
+        it, FfiConverterTypeUiAction.lower(`action`),_status)
+}
+    }
+    
+    
+
+    
+    @Throws(NearbyHashtreeException::class)override fun `takePendingCommands`(): List<AndroidCommand> {
+            return FfiConverterSequenceTypeAndroidCommand.lift(
+    callWithPointer {
+    uniffiRustCallWithError(NearbyHashtreeException) { _status ->
+    UniffiLib.INSTANCE.uniffi_nearby_hashtree_ffi_fn_method_appcore_take_pending_commands(
+        it, _status)
+}
+    }
+    )
+    }
+    
+
+    
+
+    
+    
+    companion object
+    
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeAppCore: FfiConverter<AppCore, Pointer> {
+
+    override fun lower(value: AppCore): Pointer {
+        return value.uniffiClonePointer()
+    }
+
+    override fun lift(value: Pointer): AppCore {
+        return AppCore(value)
+    }
+
+    override fun read(buf: ByteBuffer): AppCore {
+        // The Rust code always writes pointers as 8 bytes, and will
+        // fail to compile if they don't fit.
+        return lift(Pointer(buf.getLong()))
+    }
+
+    override fun allocationSize(value: AppCore) = 8UL
+
+    override fun write(value: AppCore, buf: ByteBuffer) {
+        // The Rust code always expects pointers written as 8 bytes,
+        // and will fail to compile if they don't fit.
+        buf.putLong(Pointer.nativeValue(lower(value)))
+    }
+}
+
+
+
+data class ControlsEnabled (
+    var `takePhoto`: kotlin.Boolean, 
+    var `startNearby`: kotlin.Boolean, 
+    var `stop`: kotlin.Boolean, 
+    var `fetchFromPeer`: kotlin.Boolean, 
+    var `shareAvailablePhotos`: kotlin.Boolean, 
+    var `clearDemoData`: kotlin.Boolean, 
+    var `clearLog`: kotlin.Boolean
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeControlsEnabled: FfiConverterRustBuffer<ControlsEnabled> {
+    override fun read(buf: ByteBuffer): ControlsEnabled {
+        return ControlsEnabled(
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: ControlsEnabled) = (
+            FfiConverterBoolean.allocationSize(value.`takePhoto`) +
+            FfiConverterBoolean.allocationSize(value.`startNearby`) +
+            FfiConverterBoolean.allocationSize(value.`stop`) +
+            FfiConverterBoolean.allocationSize(value.`fetchFromPeer`) +
+            FfiConverterBoolean.allocationSize(value.`shareAvailablePhotos`) +
+            FfiConverterBoolean.allocationSize(value.`clearDemoData`) +
+            FfiConverterBoolean.allocationSize(value.`clearLog`)
+    )
+
+    override fun write(value: ControlsEnabled, buf: ByteBuffer) {
+            FfiConverterBoolean.write(value.`takePhoto`, buf)
+            FfiConverterBoolean.write(value.`startNearby`, buf)
+            FfiConverterBoolean.write(value.`stop`, buf)
+            FfiConverterBoolean.write(value.`fetchFromPeer`, buf)
+            FfiConverterBoolean.write(value.`shareAvailablePhotos`, buf)
+            FfiConverterBoolean.write(value.`clearDemoData`, buf)
+            FfiConverterBoolean.write(value.`clearLog`, buf)
+    }
+}
+
+
+
+data class FeedItem (
+    var `id`: kotlin.String, 
+    var `sourceLabel`: kotlin.String, 
+    var `createdAtMs`: kotlin.Long, 
+    var `sizeBytes`: kotlin.ULong, 
+    var `nhashSuffix`: kotlin.String, 
+    var `filePath`: kotlin.String
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFeedItem: FfiConverterRustBuffer<FeedItem> {
+    override fun read(buf: ByteBuffer): FeedItem {
+        return FeedItem(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterLong.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FeedItem) = (
+            FfiConverterString.allocationSize(value.`id`) +
+            FfiConverterString.allocationSize(value.`sourceLabel`) +
+            FfiConverterLong.allocationSize(value.`createdAtMs`) +
+            FfiConverterULong.allocationSize(value.`sizeBytes`) +
+            FfiConverterString.allocationSize(value.`nhashSuffix`) +
+            FfiConverterString.allocationSize(value.`filePath`)
+    )
+
+    override fun write(value: FeedItem, buf: ByteBuffer) {
+            FfiConverterString.write(value.`id`, buf)
+            FfiConverterString.write(value.`sourceLabel`, buf)
+            FfiConverterLong.write(value.`createdAtMs`, buf)
+            FfiConverterULong.write(value.`sizeBytes`, buf)
+            FfiConverterString.write(value.`nhashSuffix`, buf)
+            FfiConverterString.write(value.`filePath`, buf)
+    }
+}
+
+
+
+data class ViewState (
+    var `page`: UiPage, 
+    var `statusText`: kotlin.String, 
+    var `modeText`: kotlin.String, 
+    var `linkText`: kotlin.String, 
+    var `storageText`: kotlin.String, 
+    var `localSummaryText`: kotlin.String, 
+    var `nearbySummaryText`: kotlin.String, 
+    var `controlsEnabled`: ControlsEnabled, 
+    var `feedItems`: List<FeedItem>, 
+    var `logLines`: List<kotlin.String>
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeViewState: FfiConverterRustBuffer<ViewState> {
+    override fun read(buf: ByteBuffer): ViewState {
+        return ViewState(
+            FfiConverterTypeUiPage.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterTypeControlsEnabled.read(buf),
+            FfiConverterSequenceTypeFeedItem.read(buf),
+            FfiConverterSequenceString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: ViewState) = (
+            FfiConverterTypeUiPage.allocationSize(value.`page`) +
+            FfiConverterString.allocationSize(value.`statusText`) +
+            FfiConverterString.allocationSize(value.`modeText`) +
+            FfiConverterString.allocationSize(value.`linkText`) +
+            FfiConverterString.allocationSize(value.`storageText`) +
+            FfiConverterString.allocationSize(value.`localSummaryText`) +
+            FfiConverterString.allocationSize(value.`nearbySummaryText`) +
+            FfiConverterTypeControlsEnabled.allocationSize(value.`controlsEnabled`) +
+            FfiConverterSequenceTypeFeedItem.allocationSize(value.`feedItems`) +
+            FfiConverterSequenceString.allocationSize(value.`logLines`)
+    )
+
+    override fun write(value: ViewState, buf: ByteBuffer) {
+            FfiConverterTypeUiPage.write(value.`page`, buf)
+            FfiConverterString.write(value.`statusText`, buf)
+            FfiConverterString.write(value.`modeText`, buf)
+            FfiConverterString.write(value.`linkText`, buf)
+            FfiConverterString.write(value.`storageText`, buf)
+            FfiConverterString.write(value.`localSummaryText`, buf)
+            FfiConverterString.write(value.`nearbySummaryText`, buf)
+            FfiConverterTypeControlsEnabled.write(value.`controlsEnabled`, buf)
+            FfiConverterSequenceTypeFeedItem.write(value.`feedItems`, buf)
+            FfiConverterSequenceString.write(value.`logLines`, buf)
+    }
+}
+
+
+
+sealed class AndroidCommand {
+    
+    object RequestPermissions : AndroidCommand()
+    
+    
+    data class LaunchCameraCapture(
+        val `outputPath`: kotlin.String) : AndroidCommand() {
+        companion object
+    }
+    
+    object StartAwareAttach : AndroidCommand()
+    
+    
+    data class StartPublish(
+        val `serviceName`: kotlin.String, 
+        val `serviceInfo`: kotlin.String) : AndroidCommand() {
+        companion object
+    }
+    
+    data class StartSubscribe(
+        val `serviceName`: kotlin.String) : AndroidCommand() {
+        companion object
+    }
+    
+    data class SendDiscoveryMessage(
+        val `channel`: DiscoveryChannel, 
+        val `handleId`: kotlin.Long, 
+        val `payload`: kotlin.String, 
+        val `messageId`: kotlin.Long) : AndroidCommand() {
+        companion object
+    }
+    
+    data class OpenResponder(
+        val `handleId`: kotlin.Long, 
+        val `passphrase`: kotlin.String, 
+        val `port`: kotlin.Int, 
+        val `protocol`: kotlin.Int, 
+        val `connectionId`: kotlin.Long) : AndroidCommand() {
+        companion object
+    }
+    
+    data class OpenInitiator(
+        val `handleId`: kotlin.Long, 
+        val `passphrase`: kotlin.String, 
+        val `connectionId`: kotlin.Long) : AndroidCommand() {
+        companion object
+    }
+    
+    data class ConnectInitiatorSocket(
+        val `connectionId`: kotlin.Long, 
+        val `ipv6`: kotlin.String, 
+        val `port`: kotlin.Int) : AndroidCommand() {
+        companion object
+    }
+    
+    data class WriteSocketBytes(
+        val `connectionId`: kotlin.Long, 
+        val `bytes`: kotlin.ByteArray) : AndroidCommand() {
+        companion object
+    }
+    
+    data class CloseSocket(
+        val `connectionId`: kotlin.Long) : AndroidCommand() {
+        companion object
+    }
+    
+    object StopAware : AndroidCommand()
+    
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeAndroidCommand : FfiConverterRustBuffer<AndroidCommand>{
+    override fun read(buf: ByteBuffer): AndroidCommand {
+        return when(buf.getInt()) {
+            1 -> AndroidCommand.RequestPermissions
+            2 -> AndroidCommand.LaunchCameraCapture(
+                FfiConverterString.read(buf),
+                )
+            3 -> AndroidCommand.StartAwareAttach
+            4 -> AndroidCommand.StartPublish(
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                )
+            5 -> AndroidCommand.StartSubscribe(
+                FfiConverterString.read(buf),
+                )
+            6 -> AndroidCommand.SendDiscoveryMessage(
+                FfiConverterTypeDiscoveryChannel.read(buf),
+                FfiConverterLong.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterLong.read(buf),
+                )
+            7 -> AndroidCommand.OpenResponder(
+                FfiConverterLong.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterInt.read(buf),
+                FfiConverterInt.read(buf),
+                FfiConverterLong.read(buf),
+                )
+            8 -> AndroidCommand.OpenInitiator(
+                FfiConverterLong.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterLong.read(buf),
+                )
+            9 -> AndroidCommand.ConnectInitiatorSocket(
+                FfiConverterLong.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterInt.read(buf),
+                )
+            10 -> AndroidCommand.WriteSocketBytes(
+                FfiConverterLong.read(buf),
+                FfiConverterByteArray.read(buf),
+                )
+            11 -> AndroidCommand.CloseSocket(
+                FfiConverterLong.read(buf),
+                )
+            12 -> AndroidCommand.StopAware
+            else -> throw RuntimeException("invalid enum value, something is very wrong!!")
+        }
+    }
+
+    override fun allocationSize(value: AndroidCommand) = when(value) {
+        is AndroidCommand.RequestPermissions -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is AndroidCommand.LaunchCameraCapture -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`outputPath`)
+            )
+        }
+        is AndroidCommand.StartAwareAttach -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is AndroidCommand.StartPublish -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`serviceName`)
+                + FfiConverterString.allocationSize(value.`serviceInfo`)
+            )
+        }
+        is AndroidCommand.StartSubscribe -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`serviceName`)
+            )
+        }
+        is AndroidCommand.SendDiscoveryMessage -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterTypeDiscoveryChannel.allocationSize(value.`channel`)
+                + FfiConverterLong.allocationSize(value.`handleId`)
+                + FfiConverterString.allocationSize(value.`payload`)
+                + FfiConverterLong.allocationSize(value.`messageId`)
+            )
+        }
+        is AndroidCommand.OpenResponder -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterLong.allocationSize(value.`handleId`)
+                + FfiConverterString.allocationSize(value.`passphrase`)
+                + FfiConverterInt.allocationSize(value.`port`)
+                + FfiConverterInt.allocationSize(value.`protocol`)
+                + FfiConverterLong.allocationSize(value.`connectionId`)
+            )
+        }
+        is AndroidCommand.OpenInitiator -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterLong.allocationSize(value.`handleId`)
+                + FfiConverterString.allocationSize(value.`passphrase`)
+                + FfiConverterLong.allocationSize(value.`connectionId`)
+            )
+        }
+        is AndroidCommand.ConnectInitiatorSocket -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterLong.allocationSize(value.`connectionId`)
+                + FfiConverterString.allocationSize(value.`ipv6`)
+                + FfiConverterInt.allocationSize(value.`port`)
+            )
+        }
+        is AndroidCommand.WriteSocketBytes -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterLong.allocationSize(value.`connectionId`)
+                + FfiConverterByteArray.allocationSize(value.`bytes`)
+            )
+        }
+        is AndroidCommand.CloseSocket -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterLong.allocationSize(value.`connectionId`)
+            )
+        }
+        is AndroidCommand.StopAware -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+    }
+
+    override fun write(value: AndroidCommand, buf: ByteBuffer) {
+        when(value) {
+            is AndroidCommand.RequestPermissions -> {
+                buf.putInt(1)
+                Unit
+            }
+            is AndroidCommand.LaunchCameraCapture -> {
+                buf.putInt(2)
+                FfiConverterString.write(value.`outputPath`, buf)
+                Unit
+            }
+            is AndroidCommand.StartAwareAttach -> {
+                buf.putInt(3)
+                Unit
+            }
+            is AndroidCommand.StartPublish -> {
+                buf.putInt(4)
+                FfiConverterString.write(value.`serviceName`, buf)
+                FfiConverterString.write(value.`serviceInfo`, buf)
+                Unit
+            }
+            is AndroidCommand.StartSubscribe -> {
+                buf.putInt(5)
+                FfiConverterString.write(value.`serviceName`, buf)
+                Unit
+            }
+            is AndroidCommand.SendDiscoveryMessage -> {
+                buf.putInt(6)
+                FfiConverterTypeDiscoveryChannel.write(value.`channel`, buf)
+                FfiConverterLong.write(value.`handleId`, buf)
+                FfiConverterString.write(value.`payload`, buf)
+                FfiConverterLong.write(value.`messageId`, buf)
+                Unit
+            }
+            is AndroidCommand.OpenResponder -> {
+                buf.putInt(7)
+                FfiConverterLong.write(value.`handleId`, buf)
+                FfiConverterString.write(value.`passphrase`, buf)
+                FfiConverterInt.write(value.`port`, buf)
+                FfiConverterInt.write(value.`protocol`, buf)
+                FfiConverterLong.write(value.`connectionId`, buf)
+                Unit
+            }
+            is AndroidCommand.OpenInitiator -> {
+                buf.putInt(8)
+                FfiConverterLong.write(value.`handleId`, buf)
+                FfiConverterString.write(value.`passphrase`, buf)
+                FfiConverterLong.write(value.`connectionId`, buf)
+                Unit
+            }
+            is AndroidCommand.ConnectInitiatorSocket -> {
+                buf.putInt(9)
+                FfiConverterLong.write(value.`connectionId`, buf)
+                FfiConverterString.write(value.`ipv6`, buf)
+                FfiConverterInt.write(value.`port`, buf)
+                Unit
+            }
+            is AndroidCommand.WriteSocketBytes -> {
+                buf.putInt(10)
+                FfiConverterLong.write(value.`connectionId`, buf)
+                FfiConverterByteArray.write(value.`bytes`, buf)
+                Unit
+            }
+            is AndroidCommand.CloseSocket -> {
+                buf.putInt(11)
+                FfiConverterLong.write(value.`connectionId`, buf)
+                Unit
+            }
+            is AndroidCommand.StopAware -> {
+                buf.putInt(12)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+}
+
+
+
+
+
+sealed class AndroidEvent {
+    
+    object PermissionsGranted : AndroidEvent()
+    
+    
+    object PermissionsDenied : AndroidEvent()
+    
+    
+    data class CameraCaptureCompleted(
+        val `tempPath`: kotlin.String) : AndroidEvent() {
+        companion object
+    }
+    
+    object CameraCaptureCancelled : AndroidEvent()
+    
+    
+    object AwareAttachSucceeded : AndroidEvent()
+    
+    
+    object AwareAttachFailed : AndroidEvent()
+    
+    
+    object PublishStarted : AndroidEvent()
+    
+    
+    object SubscribeStarted : AndroidEvent()
+    
+    
+    object PublishTerminated : AndroidEvent()
+    
+    
+    object SubscribeTerminated : AndroidEvent()
+    
+    
+    data class PeerDiscovered(
+        val `handleId`: kotlin.Long, 
+        val `instance`: kotlin.String?) : AndroidEvent() {
+        companion object
+    }
+    
+    data class DiscoveryMessageReceived(
+        val `channel`: DiscoveryChannel, 
+        val `handleId`: kotlin.Long, 
+        val `payload`: kotlin.String) : AndroidEvent() {
+        companion object
+    }
+    
+    data class DiscoveryMessageSent(
+        val `messageId`: kotlin.Long) : AndroidEvent() {
+        companion object
+    }
+    
+    data class DiscoveryMessageFailed(
+        val `messageId`: kotlin.Long) : AndroidEvent() {
+        companion object
+    }
+    
+    object ResponderNetworkAvailable : AndroidEvent()
+    
+    
+    object ResponderNetworkLost : AndroidEvent()
+    
+    
+    object InitiatorNetworkAvailable : AndroidEvent()
+    
+    
+    object InitiatorNetworkLost : AndroidEvent()
+    
+    
+    data class InitiatorCapabilities(
+        val `port`: kotlin.Int, 
+        val `ipv6`: kotlin.String?) : AndroidEvent() {
+        companion object
+    }
+    
+    data class SocketConnected(
+        val `connectionId`: kotlin.Long, 
+        val `side`: SocketSide) : AndroidEvent() {
+        companion object
+    }
+    
+    data class SocketClosed(
+        val `connectionId`: kotlin.Long) : AndroidEvent() {
+        companion object
+    }
+    
+    data class SocketRead(
+        val `connectionId`: kotlin.Long, 
+        val `bytes`: kotlin.ByteArray) : AndroidEvent() {
+        companion object
+    }
+    
+    data class SocketError(
+        val `connectionId`: kotlin.Long, 
+        val `message`: kotlin.String) : AndroidEvent() {
+        companion object
+    }
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeAndroidEvent : FfiConverterRustBuffer<AndroidEvent>{
+    override fun read(buf: ByteBuffer): AndroidEvent {
+        return when(buf.getInt()) {
+            1 -> AndroidEvent.PermissionsGranted
+            2 -> AndroidEvent.PermissionsDenied
+            3 -> AndroidEvent.CameraCaptureCompleted(
+                FfiConverterString.read(buf),
+                )
+            4 -> AndroidEvent.CameraCaptureCancelled
+            5 -> AndroidEvent.AwareAttachSucceeded
+            6 -> AndroidEvent.AwareAttachFailed
+            7 -> AndroidEvent.PublishStarted
+            8 -> AndroidEvent.SubscribeStarted
+            9 -> AndroidEvent.PublishTerminated
+            10 -> AndroidEvent.SubscribeTerminated
+            11 -> AndroidEvent.PeerDiscovered(
+                FfiConverterLong.read(buf),
+                FfiConverterOptionalString.read(buf),
+                )
+            12 -> AndroidEvent.DiscoveryMessageReceived(
+                FfiConverterTypeDiscoveryChannel.read(buf),
+                FfiConverterLong.read(buf),
+                FfiConverterString.read(buf),
+                )
+            13 -> AndroidEvent.DiscoveryMessageSent(
+                FfiConverterLong.read(buf),
+                )
+            14 -> AndroidEvent.DiscoveryMessageFailed(
+                FfiConverterLong.read(buf),
+                )
+            15 -> AndroidEvent.ResponderNetworkAvailable
+            16 -> AndroidEvent.ResponderNetworkLost
+            17 -> AndroidEvent.InitiatorNetworkAvailable
+            18 -> AndroidEvent.InitiatorNetworkLost
+            19 -> AndroidEvent.InitiatorCapabilities(
+                FfiConverterInt.read(buf),
+                FfiConverterOptionalString.read(buf),
+                )
+            20 -> AndroidEvent.SocketConnected(
+                FfiConverterLong.read(buf),
+                FfiConverterTypeSocketSide.read(buf),
+                )
+            21 -> AndroidEvent.SocketClosed(
+                FfiConverterLong.read(buf),
+                )
+            22 -> AndroidEvent.SocketRead(
+                FfiConverterLong.read(buf),
+                FfiConverterByteArray.read(buf),
+                )
+            23 -> AndroidEvent.SocketError(
+                FfiConverterLong.read(buf),
+                FfiConverterString.read(buf),
+                )
+            else -> throw RuntimeException("invalid enum value, something is very wrong!!")
+        }
+    }
+
+    override fun allocationSize(value: AndroidEvent) = when(value) {
+        is AndroidEvent.PermissionsGranted -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is AndroidEvent.PermissionsDenied -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is AndroidEvent.CameraCaptureCompleted -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`tempPath`)
+            )
+        }
+        is AndroidEvent.CameraCaptureCancelled -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is AndroidEvent.AwareAttachSucceeded -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is AndroidEvent.AwareAttachFailed -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is AndroidEvent.PublishStarted -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is AndroidEvent.SubscribeStarted -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is AndroidEvent.PublishTerminated -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is AndroidEvent.SubscribeTerminated -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is AndroidEvent.PeerDiscovered -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterLong.allocationSize(value.`handleId`)
+                + FfiConverterOptionalString.allocationSize(value.`instance`)
+            )
+        }
+        is AndroidEvent.DiscoveryMessageReceived -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterTypeDiscoveryChannel.allocationSize(value.`channel`)
+                + FfiConverterLong.allocationSize(value.`handleId`)
+                + FfiConverterString.allocationSize(value.`payload`)
+            )
+        }
+        is AndroidEvent.DiscoveryMessageSent -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterLong.allocationSize(value.`messageId`)
+            )
+        }
+        is AndroidEvent.DiscoveryMessageFailed -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterLong.allocationSize(value.`messageId`)
+            )
+        }
+        is AndroidEvent.ResponderNetworkAvailable -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is AndroidEvent.ResponderNetworkLost -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is AndroidEvent.InitiatorNetworkAvailable -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is AndroidEvent.InitiatorNetworkLost -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is AndroidEvent.InitiatorCapabilities -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterInt.allocationSize(value.`port`)
+                + FfiConverterOptionalString.allocationSize(value.`ipv6`)
+            )
+        }
+        is AndroidEvent.SocketConnected -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterLong.allocationSize(value.`connectionId`)
+                + FfiConverterTypeSocketSide.allocationSize(value.`side`)
+            )
+        }
+        is AndroidEvent.SocketClosed -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterLong.allocationSize(value.`connectionId`)
+            )
+        }
+        is AndroidEvent.SocketRead -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterLong.allocationSize(value.`connectionId`)
+                + FfiConverterByteArray.allocationSize(value.`bytes`)
+            )
+        }
+        is AndroidEvent.SocketError -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterLong.allocationSize(value.`connectionId`)
+                + FfiConverterString.allocationSize(value.`message`)
+            )
+        }
+    }
+
+    override fun write(value: AndroidEvent, buf: ByteBuffer) {
+        when(value) {
+            is AndroidEvent.PermissionsGranted -> {
+                buf.putInt(1)
+                Unit
+            }
+            is AndroidEvent.PermissionsDenied -> {
+                buf.putInt(2)
+                Unit
+            }
+            is AndroidEvent.CameraCaptureCompleted -> {
+                buf.putInt(3)
+                FfiConverterString.write(value.`tempPath`, buf)
+                Unit
+            }
+            is AndroidEvent.CameraCaptureCancelled -> {
+                buf.putInt(4)
+                Unit
+            }
+            is AndroidEvent.AwareAttachSucceeded -> {
+                buf.putInt(5)
+                Unit
+            }
+            is AndroidEvent.AwareAttachFailed -> {
+                buf.putInt(6)
+                Unit
+            }
+            is AndroidEvent.PublishStarted -> {
+                buf.putInt(7)
+                Unit
+            }
+            is AndroidEvent.SubscribeStarted -> {
+                buf.putInt(8)
+                Unit
+            }
+            is AndroidEvent.PublishTerminated -> {
+                buf.putInt(9)
+                Unit
+            }
+            is AndroidEvent.SubscribeTerminated -> {
+                buf.putInt(10)
+                Unit
+            }
+            is AndroidEvent.PeerDiscovered -> {
+                buf.putInt(11)
+                FfiConverterLong.write(value.`handleId`, buf)
+                FfiConverterOptionalString.write(value.`instance`, buf)
+                Unit
+            }
+            is AndroidEvent.DiscoveryMessageReceived -> {
+                buf.putInt(12)
+                FfiConverterTypeDiscoveryChannel.write(value.`channel`, buf)
+                FfiConverterLong.write(value.`handleId`, buf)
+                FfiConverterString.write(value.`payload`, buf)
+                Unit
+            }
+            is AndroidEvent.DiscoveryMessageSent -> {
+                buf.putInt(13)
+                FfiConverterLong.write(value.`messageId`, buf)
+                Unit
+            }
+            is AndroidEvent.DiscoveryMessageFailed -> {
+                buf.putInt(14)
+                FfiConverterLong.write(value.`messageId`, buf)
+                Unit
+            }
+            is AndroidEvent.ResponderNetworkAvailable -> {
+                buf.putInt(15)
+                Unit
+            }
+            is AndroidEvent.ResponderNetworkLost -> {
+                buf.putInt(16)
+                Unit
+            }
+            is AndroidEvent.InitiatorNetworkAvailable -> {
+                buf.putInt(17)
+                Unit
+            }
+            is AndroidEvent.InitiatorNetworkLost -> {
+                buf.putInt(18)
+                Unit
+            }
+            is AndroidEvent.InitiatorCapabilities -> {
+                buf.putInt(19)
+                FfiConverterInt.write(value.`port`, buf)
+                FfiConverterOptionalString.write(value.`ipv6`, buf)
+                Unit
+            }
+            is AndroidEvent.SocketConnected -> {
+                buf.putInt(20)
+                FfiConverterLong.write(value.`connectionId`, buf)
+                FfiConverterTypeSocketSide.write(value.`side`, buf)
+                Unit
+            }
+            is AndroidEvent.SocketClosed -> {
+                buf.putInt(21)
+                FfiConverterLong.write(value.`connectionId`, buf)
+                Unit
+            }
+            is AndroidEvent.SocketRead -> {
+                buf.putInt(22)
+                FfiConverterLong.write(value.`connectionId`, buf)
+                FfiConverterByteArray.write(value.`bytes`, buf)
+                Unit
+            }
+            is AndroidEvent.SocketError -> {
+                buf.putInt(23)
+                FfiConverterLong.write(value.`connectionId`, buf)
+                FfiConverterString.write(value.`message`, buf)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+}
+
+
+
+
+
+
+enum class DiscoveryChannel {
+    
+    PUBLISH,
+    SUBSCRIBE;
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeDiscoveryChannel: FfiConverterRustBuffer<DiscoveryChannel> {
+    override fun read(buf: ByteBuffer) = try {
+        DiscoveryChannel.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: DiscoveryChannel) = 4UL
+
+    override fun write(value: DiscoveryChannel, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
 
 
 
@@ -1025,6 +2479,330 @@ public object FfiConverterTypeNearbyHashtreeError : FfiConverterRustBuffer<Nearb
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
     }
 
+}
+
+
+
+
+enum class SocketSide {
+    
+    RESPONDER,
+    INITIATOR;
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeSocketSide: FfiConverterRustBuffer<SocketSide> {
+    override fun read(buf: ByteBuffer) = try {
+        SocketSide.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: SocketSide) = 4UL
+
+    override fun write(value: SocketSide, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
+sealed class UiAction {
+    
+    object TakePhotoRequested : UiAction()
+    
+    
+    object StartNearbyRequested : UiAction()
+    
+    
+    object StopRequested : UiAction()
+    
+    
+    object FetchFromPeerRequested : UiAction()
+    
+    
+    object ShareAvailablePhotosRequested : UiAction()
+    
+    
+    object ClearDemoDataRequested : UiAction()
+    
+    
+    data class SwitchPage(
+        val v1: UiPage) : UiAction() {
+        companion object
+    }
+    
+    object ClearLogRequested : UiAction()
+    
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUiAction : FfiConverterRustBuffer<UiAction>{
+    override fun read(buf: ByteBuffer): UiAction {
+        return when(buf.getInt()) {
+            1 -> UiAction.TakePhotoRequested
+            2 -> UiAction.StartNearbyRequested
+            3 -> UiAction.StopRequested
+            4 -> UiAction.FetchFromPeerRequested
+            5 -> UiAction.ShareAvailablePhotosRequested
+            6 -> UiAction.ClearDemoDataRequested
+            7 -> UiAction.SwitchPage(
+                FfiConverterTypeUiPage.read(buf),
+                )
+            8 -> UiAction.ClearLogRequested
+            else -> throw RuntimeException("invalid enum value, something is very wrong!!")
+        }
+    }
+
+    override fun allocationSize(value: UiAction) = when(value) {
+        is UiAction.TakePhotoRequested -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is UiAction.StartNearbyRequested -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is UiAction.StopRequested -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is UiAction.FetchFromPeerRequested -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is UiAction.ShareAvailablePhotosRequested -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is UiAction.ClearDemoDataRequested -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is UiAction.SwitchPage -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterTypeUiPage.allocationSize(value.v1)
+            )
+        }
+        is UiAction.ClearLogRequested -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+    }
+
+    override fun write(value: UiAction, buf: ByteBuffer) {
+        when(value) {
+            is UiAction.TakePhotoRequested -> {
+                buf.putInt(1)
+                Unit
+            }
+            is UiAction.StartNearbyRequested -> {
+                buf.putInt(2)
+                Unit
+            }
+            is UiAction.StopRequested -> {
+                buf.putInt(3)
+                Unit
+            }
+            is UiAction.FetchFromPeerRequested -> {
+                buf.putInt(4)
+                Unit
+            }
+            is UiAction.ShareAvailablePhotosRequested -> {
+                buf.putInt(5)
+                Unit
+            }
+            is UiAction.ClearDemoDataRequested -> {
+                buf.putInt(6)
+                Unit
+            }
+            is UiAction.SwitchPage -> {
+                buf.putInt(7)
+                FfiConverterTypeUiPage.write(value.v1, buf)
+                Unit
+            }
+            is UiAction.ClearLogRequested -> {
+                buf.putInt(8)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+}
+
+
+
+
+
+
+enum class UiPage {
+    
+    CONFIG,
+    FEED;
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeUiPage: FfiConverterRustBuffer<UiPage> {
+    override fun read(buf: ByteBuffer) = try {
+        UiPage.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: UiPage) = 4UL
+
+    override fun write(value: UiPage, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalString: FfiConverterRustBuffer<kotlin.String?> {
+    override fun read(buf: ByteBuffer): kotlin.String? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterString.read(buf)
+    }
+
+    override fun allocationSize(value: kotlin.String?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterString.allocationSize(value)
+        }
+    }
+
+    override fun write(value: kotlin.String?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterString.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceString: FfiConverterRustBuffer<List<kotlin.String>> {
+    override fun read(buf: ByteBuffer): List<kotlin.String> {
+        val len = buf.getInt()
+        return List<kotlin.String>(len) {
+            FfiConverterString.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<kotlin.String>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterString.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<kotlin.String>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterString.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeFeedItem: FfiConverterRustBuffer<List<FeedItem>> {
+    override fun read(buf: ByteBuffer): List<FeedItem> {
+        val len = buf.getInt()
+        return List<FeedItem>(len) {
+            FfiConverterTypeFeedItem.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<FeedItem>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeFeedItem.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<FeedItem>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeFeedItem.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeAndroidCommand: FfiConverterRustBuffer<List<AndroidCommand>> {
+    override fun read(buf: ByteBuffer): List<AndroidCommand> {
+        val len = buf.getInt()
+        return List<AndroidCommand>(len) {
+            FfiConverterTypeAndroidCommand.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<AndroidCommand>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeAndroidCommand.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<AndroidCommand>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeAndroidCommand.write(it, buf)
+        }
+    }
 }
     @Throws(NearbyHashtreeException::class) fun `computeNhashFromFile`(`filePath`: kotlin.String): kotlin.String {
             return FfiConverterString.lift(
