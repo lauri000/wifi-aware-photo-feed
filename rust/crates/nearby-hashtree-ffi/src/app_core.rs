@@ -427,8 +427,15 @@ impl CoreState {
                         "Peer sync socket closed for {}.",
                         connection.peer_instance
                     ));
-                    if self.role == Role::Peer {
-                        self.ensure_data_path_for_peer(&peer_instance);
+                    if self.role == Role::Peer
+                        && !self.pending_start_nearby
+                        && self.connections.is_empty()
+                        && self.connected_peer_count() == 0
+                    {
+                        self.restart_nearby_stack(&format!(
+                            "Nearby link to {} dropped. Re-establishing nearby automatically.",
+                            peer_instance
+                        ));
                     }
                 }
                 self.refresh_link_text();
@@ -1013,6 +1020,23 @@ impl CoreState {
         self.queue(AndroidCommand::StopAware);
         self.log(reason);
     }
+
+    fn restart_nearby_stack(
+        &mut self,
+        reason: &str,
+    ) {
+        self.pending_start_nearby = true;
+        self.peers.clear();
+        self.publish_handle_to_instance.clear();
+        self.subscribe_handle_to_instance.clear();
+        self.connections.clear();
+        self.inbound_decoders.clear();
+        self.status_text = "Restarting nearby".to_string();
+        self.link_text = "Reconnecting".to_string();
+        self.queue(AndroidCommand::StopAware);
+        self.queue(AndroidCommand::StartAwareAttach);
+        self.log(reason);
+    }
 }
 
 fn peer_label(handle_id: i64) -> String {
@@ -1326,6 +1350,61 @@ mod tests {
                 AndroidCommand::OpenResponder { .. },
                 AndroidCommand::SendDiscoveryMessage { .. },
             ] if *connection_id == first_connection_id
+        ));
+    }
+
+    #[test]
+    fn closing_last_peer_socket_restarts_nearby_stack() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let files_dir = dir.path().join("files");
+        let cache_dir = dir.path().join("cache");
+        std::fs::create_dir_all(&files_dir).expect("files dir");
+        std::fs::create_dir_all(&cache_dir).expect("cache dir");
+        let core = AppCore::new(
+            files_dir.display().to_string(),
+            cache_dir.display().to_string(),
+            "phone-a".to_string(),
+        )
+        .expect("core");
+
+        core.on_android_event(AndroidEvent::AwareAttachSucceeded)
+            .expect("attach success");
+        let _ = core.take_pending_commands().expect("attach commands");
+
+        core.on_android_event(AndroidEvent::PeerDiscovered {
+            handle_id: 1,
+            instance: Some("phone-b".to_string()),
+        })
+        .expect("peer discovered");
+        let _ = core.take_pending_commands().expect("hello command");
+        core.on_android_event(AndroidEvent::DiscoveryMessageReceived {
+            channel: crate::types::DiscoveryChannel::Subscribe,
+            handle_id: 1,
+            payload: "ready:phone-b".to_string(),
+        })
+        .expect("ready");
+        let commands = core.take_pending_commands().expect("open initiator");
+        let connection_id = match commands.as_slice() {
+            [AndroidCommand::OpenInitiator { connection_id, .. }] => *connection_id,
+            other => panic!("unexpected commands: {other:?}"),
+        };
+
+        core.on_android_event(AndroidEvent::SocketConnected {
+            connection_id,
+            side: crate::types::SocketSide::Initiator,
+        })
+        .expect("socket connected");
+        let _ = core.take_pending_commands().expect("post connect");
+
+        core.on_android_event(AndroidEvent::SocketClosed { connection_id })
+            .expect("socket closed");
+        let commands = core.take_pending_commands().expect("restart commands");
+        assert!(matches!(
+            commands.as_slice(),
+            [
+                AndroidCommand::StopAware,
+                AndroidCommand::StartAwareAttach,
+            ]
         ));
     }
 }

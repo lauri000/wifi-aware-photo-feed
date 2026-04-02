@@ -1029,40 +1029,60 @@ class MainActivity : Activity() {
     }
 
     private fun closeSocket(connectionId: Long) {
-        socketWriters.remove(connectionId)?.shutdownNow()
-        val resource = sockets.remove(connectionId) ?: return
-        try {
-            resource.input.close()
-        } catch (_: Exception) {
+        var hadResources = false
+
+        socketWriters.remove(connectionId)?.let {
+            hadResources = true
+            it.shutdownNow()
         }
-        try {
-            resource.output.close()
-        } catch (_: Exception) {
+
+        sockets.remove(connectionId)?.let { resource ->
+            hadResources = true
+            try {
+                resource.input.close()
+            } catch (_: Exception) {
+            }
+            try {
+                resource.output.close()
+            } catch (_: Exception) {
+            }
+            try {
+                resource.socket.close()
+            } catch (_: Exception) {
+            }
         }
-        try {
-            resource.socket.close()
-        } catch (_: Exception) {
-        }
+
         responderServerSockets.remove(connectionId)?.let {
+            hadResources = true
             try {
                 it.close()
             } catch (_: Exception) {
             }
         }
+
         responderNetworkCallbacks.remove(connectionId)?.let {
+            hadResources = true
             try {
                 connectivityManager.unregisterNetworkCallback(it)
             } catch (_: Exception) {
             }
         }
+
         initiatorNetworkCallbacks.remove(connectionId)?.let {
+            hadResources = true
             try {
                 connectivityManager.unregisterNetworkCallback(it)
             } catch (_: Exception) {
             }
         }
-        initiatorNetworks.remove(connectionId)
-        dispatchAndroidEvent(AndroidEvent.SocketClosed(connectionId))
+
+        initiatorNetworks.remove(connectionId)?.let {
+            hadResources = true
+        }
+
+        if (hadResources) {
+            dispatchAndroidEvent(AndroidEvent.SocketClosed(connectionId))
+        }
     }
 
     private fun cleanupAndroidResources() {
