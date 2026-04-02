@@ -29,6 +29,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.provider.MediaStore
 import android.util.Log
 import android.util.LruCache
@@ -72,6 +73,8 @@ class MainActivity : Activity() {
         private const val logTag = "NostrWifiAware"
         private const val ioBufferSize = 64 * 1024
         private const val renderDebounceMs = 48L
+        private const val captureReadyTimeoutMs = 5_000L
+        private const val captureReadyPollMs = 100L
     }
 
     private data class CaptureRequest(
@@ -172,9 +175,15 @@ class MainActivity : Activity() {
         wifiAwareManager = getSystemService(WIFI_AWARE_SERVICE) as WifiAwareManager
         connectivityManager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
         appCore = AppCore(filesDir.absolutePath, cacheDir.absolutePath, appInstance)
+        currentCaptureRequest = restorePendingCaptureRequest()
 
         setContentView(buildUi())
         renderView(appCore.currentViewState())
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        currentCaptureRequest?.let { outState.putString("pending_capture_output_path", it.outputPath) }
     }
 
     override fun onDestroy() {
@@ -217,29 +226,33 @@ class MainActivity : Activity() {
             return
         }
 
-        val captureRequest = currentCaptureRequest
-        currentCaptureRequest = null
-        if (captureRequest != null) {
-            revokeUriPermission(
-                captureRequest.uri,
-                Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION,
-            )
-        }
-
+        val captureRequest = currentCaptureRequest ?: restorePendingCaptureRequest()
+        clearPendingCaptureRequest()
         if (captureRequest == null) {
-            dispatchAndroidEvent(AndroidEvent.CameraCaptureCancelled)
+            Log.d(logTag, "Ignoring camera result with no pending capture request.")
             return
         }
 
         val outputFile = File(captureRequest.outputPath)
-        if (resultCode == RESULT_OK && outputFile.exists() && outputFile.length() > 0L) {
-            dispatchAndroidEvent(
-                AndroidEvent.CameraCaptureCompleted(captureRequest.outputPath),
-            )
-        } else {
-            outputFile.delete()
-            dispatchAndroidEvent(AndroidEvent.CameraCaptureCancelled)
+        if (resultCode == RESULT_OK) {
+            ioExecutor.execute {
+                val ready = waitForCapturedFile(outputFile)
+                revokeCaptureUri(captureRequest)
+                if (ready) {
+                    dispatchAndroidEvent(
+                        AndroidEvent.CameraCaptureCompleted(captureRequest.outputPath),
+                    )
+                } else {
+                    outputFile.delete()
+                    dispatchAndroidEvent(AndroidEvent.CameraCaptureCancelled)
+                }
+            }
+            return
         }
+
+        revokeCaptureUri(captureRequest)
+        outputFile.delete()
+        dispatchAndroidEvent(AndroidEvent.CameraCaptureCancelled)
     }
 
     private fun buildUi(): ScrollView {
@@ -672,10 +685,11 @@ class MainActivity : Activity() {
                     return@runOnMain
                 }
 
-                currentCaptureRequest = CaptureRequest(outputPath, uri)
+                rememberPendingCapture(CaptureRequest(outputPath, uri))
                 startActivityForResult(intent, cameraRequestCode)
             } catch (e: Exception) {
                 Log.e(logTag, "Failed to launch camera", e)
+                clearPendingCaptureRequest()
                 dispatchAndroidEvent(AndroidEvent.CameraCaptureCancelled)
             }
         }
@@ -1088,6 +1102,7 @@ class MainActivity : Activity() {
     private fun cleanupAndroidResources() {
         runOnMain {
             currentCaptureRequest = null
+            clearPendingCaptureState()
             publishSession?.close()
             subscribeSession?.close()
             awareSession?.close()
@@ -1180,6 +1195,101 @@ class MainActivity : Activity() {
                 ),
             )
         }
+    }
+
+    private fun rememberPendingCapture(captureRequest: CaptureRequest) {
+        currentCaptureRequest = captureRequest
+        persistPendingCaptureState(captureRequest.outputPath)
+    }
+
+    private fun clearPendingCaptureRequest() {
+        currentCaptureRequest = null
+        clearPendingCaptureState()
+    }
+
+    private fun restorePendingCaptureRequest(): CaptureRequest? {
+        val pendingPath =
+            readPendingCaptureState()?.takeIf { it.isNotBlank() }
+                ?: return null
+        return try {
+            val outputFile = File(pendingPath)
+            CaptureRequest(
+                outputPath = pendingPath,
+                uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", outputFile),
+            )
+        } catch (e: Exception) {
+            Log.w(logTag, "Failed to restore pending capture request", e)
+            clearPendingCaptureState()
+            null
+        }
+    }
+
+    private fun persistPendingCaptureState(outputPath: String) {
+        try {
+            pendingCaptureStateFile().parentFile?.mkdirs()
+            pendingCaptureStateFile().writeText(outputPath)
+        } catch (e: IOException) {
+            Log.w(logTag, "Failed to persist pending capture state", e)
+        }
+    }
+
+    private fun readPendingCaptureState(): String? =
+        try {
+            pendingCaptureStateFile()
+                .takeIf { it.exists() }
+                ?.readText()
+                ?.trim()
+        } catch (e: IOException) {
+            Log.w(logTag, "Failed to read pending capture state", e)
+            null
+        }
+
+    private fun clearPendingCaptureState() {
+        try {
+            pendingCaptureStateFile().delete()
+        } catch (e: Exception) {
+            Log.w(logTag, "Failed to clear pending capture state", e)
+        }
+    }
+
+    private fun pendingCaptureStateFile(): File = File(cacheDir, "pending-capture.txt")
+
+    private fun revokeCaptureUri(captureRequest: CaptureRequest) {
+        runOnMain {
+            try {
+                revokeUriPermission(
+                    captureRequest.uri,
+                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                )
+            } catch (e: Exception) {
+                Log.w(logTag, "Failed to revoke camera URI permission", e)
+            }
+        }
+    }
+
+    private fun waitForCapturedFile(outputFile: File): Boolean {
+        val deadline = SystemClock.elapsedRealtime() + captureReadyTimeoutMs
+        var lastLength = -1L
+        var stableReads = 0
+
+        while (SystemClock.elapsedRealtime() < deadline) {
+            val length = if (outputFile.exists()) outputFile.length() else 0L
+            if (length > 0L) {
+                stableReads =
+                    if (length == lastLength) {
+                        stableReads + 1
+                    } else {
+                        0
+                    }
+                lastLength = length
+                if (stableReads >= 2) {
+                    return true
+                }
+            }
+            Thread.sleep(captureReadyPollMs)
+        }
+
+        return outputFile.exists() && outputFile.length() > 0L
     }
 
     private fun decodePreviewBitmap(
