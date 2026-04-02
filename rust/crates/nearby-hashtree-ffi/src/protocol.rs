@@ -4,21 +4,39 @@ use crate::NearbyHashtreeError;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum WireMessage {
+    SocketHello {
+        instance: String,
+    },
     RootAnnounce {
         feed_root_nhash: String,
         block_hashes: Vec<String>,
         entry_count: u32,
+        sync_id: i64,
     },
     BlockWant {
         feed_root_nhash: String,
         missing_hashes: Vec<String>,
+        sync_id: i64,
     },
     BlockPut {
         hash_hex: String,
         bytes: Vec<u8>,
+        sync_id: i64,
     },
     SyncDone {
         feed_root_nhash: String,
+        sync_id: i64,
+    },
+    SyncApplied {
+        feed_root_nhash: String,
+        added_entries: u32,
+        sync_id: i64,
+    },
+    SyncError {
+        feed_root_nhash: String,
+        retryable: bool,
+        reason: String,
+        sync_id: i64,
     },
 }
 
@@ -78,6 +96,7 @@ mod tests {
             feed_root_nhash: "nhash1root".to_string(),
             block_hashes: vec!["aa".to_string(), "bb".to_string()],
             entry_count: 2,
+            sync_id: 9,
         };
 
         let bytes = encode_frame(&message).expect("frame bytes");
@@ -91,6 +110,7 @@ mod tests {
         let message = WireMessage::BlockPut {
             hash_hex: "ab".repeat(32),
             bytes: vec![1, 2, 3],
+            sync_id: 7,
         };
         let bytes = encode_frame(&message).expect("frame bytes");
         let split = bytes.len() / 2;

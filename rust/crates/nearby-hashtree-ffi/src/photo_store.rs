@@ -104,6 +104,32 @@ impl PhotoStore {
             .to_string())
     }
 
+    pub fn recover_pending_captures(&self) -> Result<usize, NearbyHashtreeError> {
+        self.ensure_dirs()?;
+        let mut recovered = 0usize;
+        let mut pending = fs::read_dir(&self.capture_inbox_dir)
+            .map_err(io_err("read capture inbox"))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(io_err("collect capture inbox"))?;
+        pending.sort_by_key(|entry| entry.path());
+        for entry in pending {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            if path.extension().and_then(|ext| ext.to_str()) != Some("jpg") {
+                continue;
+            }
+            if path.metadata().map_err(io_err("read pending capture metadata"))?.len() == 0 {
+                continue;
+            }
+            if self.finalize_captured_photo(&path.display().to_string()).is_ok() {
+                recovered += 1;
+            }
+        }
+        Ok(recovered)
+    }
+
     pub fn finalize_captured_photo(
         &self,
         temp_path: &str,
@@ -784,6 +810,30 @@ mod tests {
         assert_eq!(raw_bytes, b"durable-raw-photo");
         assert_eq!(store.current_entry_count().expect("entry count"), 1);
         assert!(!stored.photo_cid.is_empty());
+    }
+
+    #[test]
+    fn pending_inbox_capture_is_recovered_on_next_open() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let files_dir = dir.path().join("files");
+        let cache_dir = dir.path().join("cache");
+        std::fs::create_dir_all(&files_dir).expect("files dir");
+        std::fs::create_dir_all(&cache_dir).expect("cache dir");
+        let store = PhotoStore::new(&files_dir, &cache_dir).expect("store");
+        let temp = store.create_capture_temp_path().expect("temp path");
+        std::fs::write(&temp, b"recover-me").expect("write pending capture");
+        drop(store);
+
+        let reopened = PhotoStore::new(&files_dir, &cache_dir).expect("reopen store");
+        let recovered = reopened.recover_pending_captures().expect("recover pending");
+
+        assert_eq!(recovered, 1);
+        assert_eq!(reopened.current_entry_count().expect("entry count"), 1);
+        let inbox = std::fs::read_dir(files_dir.join("hashtree").join("captures").join("inbox"))
+            .expect("read inbox")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("collect inbox");
+        assert!(inbox.is_empty());
     }
 
     #[test]

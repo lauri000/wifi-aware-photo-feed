@@ -19,6 +19,8 @@ pub enum SocketSide {
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
 pub enum UiAction {
     TakePhotoRequested,
+    CapturePhotoRequested,
+    CancelCameraRequested,
     ToggleNearbyRequested,
     ClearDemoDataRequested,
     SwitchPage(UiPage),
@@ -27,10 +29,13 @@ pub enum UiAction {
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
 pub enum AndroidEvent {
-    PermissionsGranted,
-    PermissionsDenied,
-    CameraCaptureCompleted { temp_path: String },
-    CameraCaptureCancelled,
+    CameraPermissionGranted,
+    CameraPermissionDenied,
+    NearbyPermissionGranted,
+    NearbyPermissionDenied,
+    CameraCaptureSaved { output_path: String },
+    CameraCaptureFailed { message: String },
+    AwareAvailabilityChanged { available: bool },
     AwareAttachSucceeded,
     AwareAttachFailed,
     PublishStarted,
@@ -69,12 +74,18 @@ pub enum AndroidEvent {
         connection_id: i64,
         message: String,
     },
+    ReconnectPeer {
+        peer_instance: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
 pub enum AndroidCommand {
-    RequestPermissions,
-    LaunchCameraCapture { output_path: String },
+    RequestCameraPermission,
+    RequestNearbyPermission,
+    StartCameraPreview { output_path: String },
+    StopCameraPreview,
+    CapturePhoto { output_path: String },
     StartAwareAttach,
     StartPublish {
         service_name: String,
@@ -113,6 +124,10 @@ pub enum AndroidCommand {
     CloseSocket {
         connection_id: i64,
     },
+    ScheduleReconnect {
+        peer_instance: String,
+        delay_ms: i64,
+    },
     StopAware,
 }
 
@@ -144,6 +159,9 @@ pub struct ViewState {
     pub mode_text: String,
     pub link_text: String,
     pub storage_text: String,
+    pub capture_queue_text: String,
+    pub sync_status_text: String,
+    pub last_sync_error_text: String,
     pub local_summary_text: String,
     pub nearby_summary_text: String,
     pub controls_enabled: ControlsEnabled,

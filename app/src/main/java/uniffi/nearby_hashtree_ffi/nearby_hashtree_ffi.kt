@@ -1583,6 +1583,9 @@ data class ViewState (
     var `modeText`: kotlin.String, 
     var `linkText`: kotlin.String, 
     var `storageText`: kotlin.String, 
+    var `captureQueueText`: kotlin.String, 
+    var `syncStatusText`: kotlin.String, 
+    var `lastSyncErrorText`: kotlin.String, 
     var `localSummaryText`: kotlin.String, 
     var `nearbySummaryText`: kotlin.String, 
     var `controlsEnabled`: ControlsEnabled, 
@@ -1606,6 +1609,9 @@ public object FfiConverterTypeViewState: FfiConverterRustBuffer<ViewState> {
             FfiConverterString.read(buf),
             FfiConverterString.read(buf),
             FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
             FfiConverterTypeControlsEnabled.read(buf),
             FfiConverterSequenceTypeFeedItem.read(buf),
             FfiConverterSequenceString.read(buf),
@@ -1618,6 +1624,9 @@ public object FfiConverterTypeViewState: FfiConverterRustBuffer<ViewState> {
             FfiConverterString.allocationSize(value.`modeText`) +
             FfiConverterString.allocationSize(value.`linkText`) +
             FfiConverterString.allocationSize(value.`storageText`) +
+            FfiConverterString.allocationSize(value.`captureQueueText`) +
+            FfiConverterString.allocationSize(value.`syncStatusText`) +
+            FfiConverterString.allocationSize(value.`lastSyncErrorText`) +
             FfiConverterString.allocationSize(value.`localSummaryText`) +
             FfiConverterString.allocationSize(value.`nearbySummaryText`) +
             FfiConverterTypeControlsEnabled.allocationSize(value.`controlsEnabled`) +
@@ -1631,6 +1640,9 @@ public object FfiConverterTypeViewState: FfiConverterRustBuffer<ViewState> {
             FfiConverterString.write(value.`modeText`, buf)
             FfiConverterString.write(value.`linkText`, buf)
             FfiConverterString.write(value.`storageText`, buf)
+            FfiConverterString.write(value.`captureQueueText`, buf)
+            FfiConverterString.write(value.`syncStatusText`, buf)
+            FfiConverterString.write(value.`lastSyncErrorText`, buf)
             FfiConverterString.write(value.`localSummaryText`, buf)
             FfiConverterString.write(value.`nearbySummaryText`, buf)
             FfiConverterTypeControlsEnabled.write(value.`controlsEnabled`, buf)
@@ -1643,10 +1655,21 @@ public object FfiConverterTypeViewState: FfiConverterRustBuffer<ViewState> {
 
 sealed class AndroidCommand {
     
-    object RequestPermissions : AndroidCommand()
+    object RequestCameraPermission : AndroidCommand()
     
     
-    data class LaunchCameraCapture(
+    object RequestNearbyPermission : AndroidCommand()
+    
+    
+    data class StartCameraPreview(
+        val `outputPath`: kotlin.String) : AndroidCommand() {
+        companion object
+    }
+    
+    object StopCameraPreview : AndroidCommand()
+    
+    
+    data class CapturePhoto(
         val `outputPath`: kotlin.String) : AndroidCommand() {
         companion object
     }
@@ -1707,6 +1730,12 @@ sealed class AndroidCommand {
         companion object
     }
     
+    data class ScheduleReconnect(
+        val `peerInstance`: kotlin.String, 
+        val `delayMs`: kotlin.Long) : AndroidCommand() {
+        companion object
+    }
+    
     object StopAware : AndroidCommand()
     
     
@@ -1721,61 +1750,89 @@ sealed class AndroidCommand {
 public object FfiConverterTypeAndroidCommand : FfiConverterRustBuffer<AndroidCommand>{
     override fun read(buf: ByteBuffer): AndroidCommand {
         return when(buf.getInt()) {
-            1 -> AndroidCommand.RequestPermissions
-            2 -> AndroidCommand.LaunchCameraCapture(
+            1 -> AndroidCommand.RequestCameraPermission
+            2 -> AndroidCommand.RequestNearbyPermission
+            3 -> AndroidCommand.StartCameraPreview(
                 FfiConverterString.read(buf),
                 )
-            3 -> AndroidCommand.StartAwareAttach
-            4 -> AndroidCommand.StartPublish(
+            4 -> AndroidCommand.StopCameraPreview
+            5 -> AndroidCommand.CapturePhoto(
+                FfiConverterString.read(buf),
+                )
+            6 -> AndroidCommand.StartAwareAttach
+            7 -> AndroidCommand.StartPublish(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 )
-            5 -> AndroidCommand.StartSubscribe(
+            8 -> AndroidCommand.StartSubscribe(
                 FfiConverterString.read(buf),
                 )
-            6 -> AndroidCommand.SendDiscoveryMessage(
+            9 -> AndroidCommand.SendDiscoveryMessage(
                 FfiConverterTypeDiscoveryChannel.read(buf),
                 FfiConverterLong.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterLong.read(buf),
                 )
-            7 -> AndroidCommand.OpenResponder(
+            10 -> AndroidCommand.OpenResponder(
                 FfiConverterLong.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterInt.read(buf),
                 FfiConverterInt.read(buf),
                 FfiConverterLong.read(buf),
                 )
-            8 -> AndroidCommand.OpenInitiator(
+            11 -> AndroidCommand.OpenInitiator(
                 FfiConverterLong.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterLong.read(buf),
                 )
-            9 -> AndroidCommand.ConnectInitiatorSocket(
+            12 -> AndroidCommand.ConnectInitiatorSocket(
                 FfiConverterLong.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterInt.read(buf),
                 )
-            10 -> AndroidCommand.WriteSocketBytes(
+            13 -> AndroidCommand.WriteSocketBytes(
                 FfiConverterLong.read(buf),
                 FfiConverterByteArray.read(buf),
                 )
-            11 -> AndroidCommand.CloseSocket(
+            14 -> AndroidCommand.CloseSocket(
                 FfiConverterLong.read(buf),
                 )
-            12 -> AndroidCommand.StopAware
+            15 -> AndroidCommand.ScheduleReconnect(
+                FfiConverterString.read(buf),
+                FfiConverterLong.read(buf),
+                )
+            16 -> AndroidCommand.StopAware
             else -> throw RuntimeException("invalid enum value, something is very wrong!!")
         }
     }
 
     override fun allocationSize(value: AndroidCommand) = when(value) {
-        is AndroidCommand.RequestPermissions -> {
+        is AndroidCommand.RequestCameraPermission -> {
             // Add the size for the Int that specifies the variant plus the size needed for all fields
             (
                 4UL
             )
         }
-        is AndroidCommand.LaunchCameraCapture -> {
+        is AndroidCommand.RequestNearbyPermission -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is AndroidCommand.StartCameraPreview -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`outputPath`)
+            )
+        }
+        is AndroidCommand.StopCameraPreview -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is AndroidCommand.CapturePhoto -> {
             // Add the size for the Int that specifies the variant plus the size needed for all fields
             (
                 4UL
@@ -1857,6 +1914,14 @@ public object FfiConverterTypeAndroidCommand : FfiConverterRustBuffer<AndroidCom
                 + FfiConverterLong.allocationSize(value.`connectionId`)
             )
         }
+        is AndroidCommand.ScheduleReconnect -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`peerInstance`)
+                + FfiConverterLong.allocationSize(value.`delayMs`)
+            )
+        }
         is AndroidCommand.StopAware -> {
             // Add the size for the Int that specifies the variant plus the size needed for all fields
             (
@@ -1867,32 +1932,45 @@ public object FfiConverterTypeAndroidCommand : FfiConverterRustBuffer<AndroidCom
 
     override fun write(value: AndroidCommand, buf: ByteBuffer) {
         when(value) {
-            is AndroidCommand.RequestPermissions -> {
+            is AndroidCommand.RequestCameraPermission -> {
                 buf.putInt(1)
                 Unit
             }
-            is AndroidCommand.LaunchCameraCapture -> {
+            is AndroidCommand.RequestNearbyPermission -> {
                 buf.putInt(2)
+                Unit
+            }
+            is AndroidCommand.StartCameraPreview -> {
+                buf.putInt(3)
+                FfiConverterString.write(value.`outputPath`, buf)
+                Unit
+            }
+            is AndroidCommand.StopCameraPreview -> {
+                buf.putInt(4)
+                Unit
+            }
+            is AndroidCommand.CapturePhoto -> {
+                buf.putInt(5)
                 FfiConverterString.write(value.`outputPath`, buf)
                 Unit
             }
             is AndroidCommand.StartAwareAttach -> {
-                buf.putInt(3)
+                buf.putInt(6)
                 Unit
             }
             is AndroidCommand.StartPublish -> {
-                buf.putInt(4)
+                buf.putInt(7)
                 FfiConverterString.write(value.`serviceName`, buf)
                 FfiConverterString.write(value.`serviceInfo`, buf)
                 Unit
             }
             is AndroidCommand.StartSubscribe -> {
-                buf.putInt(5)
+                buf.putInt(8)
                 FfiConverterString.write(value.`serviceName`, buf)
                 Unit
             }
             is AndroidCommand.SendDiscoveryMessage -> {
-                buf.putInt(6)
+                buf.putInt(9)
                 FfiConverterTypeDiscoveryChannel.write(value.`channel`, buf)
                 FfiConverterLong.write(value.`handleId`, buf)
                 FfiConverterString.write(value.`payload`, buf)
@@ -1900,7 +1978,7 @@ public object FfiConverterTypeAndroidCommand : FfiConverterRustBuffer<AndroidCom
                 Unit
             }
             is AndroidCommand.OpenResponder -> {
-                buf.putInt(7)
+                buf.putInt(10)
                 FfiConverterLong.write(value.`handleId`, buf)
                 FfiConverterString.write(value.`passphrase`, buf)
                 FfiConverterInt.write(value.`port`, buf)
@@ -1909,32 +1987,38 @@ public object FfiConverterTypeAndroidCommand : FfiConverterRustBuffer<AndroidCom
                 Unit
             }
             is AndroidCommand.OpenInitiator -> {
-                buf.putInt(8)
+                buf.putInt(11)
                 FfiConverterLong.write(value.`handleId`, buf)
                 FfiConverterString.write(value.`passphrase`, buf)
                 FfiConverterLong.write(value.`connectionId`, buf)
                 Unit
             }
             is AndroidCommand.ConnectInitiatorSocket -> {
-                buf.putInt(9)
+                buf.putInt(12)
                 FfiConverterLong.write(value.`connectionId`, buf)
                 FfiConverterString.write(value.`ipv6`, buf)
                 FfiConverterInt.write(value.`port`, buf)
                 Unit
             }
             is AndroidCommand.WriteSocketBytes -> {
-                buf.putInt(10)
+                buf.putInt(13)
                 FfiConverterLong.write(value.`connectionId`, buf)
                 FfiConverterByteArray.write(value.`bytes`, buf)
                 Unit
             }
             is AndroidCommand.CloseSocket -> {
-                buf.putInt(11)
+                buf.putInt(14)
                 FfiConverterLong.write(value.`connectionId`, buf)
                 Unit
             }
+            is AndroidCommand.ScheduleReconnect -> {
+                buf.putInt(15)
+                FfiConverterString.write(value.`peerInstance`, buf)
+                FfiConverterLong.write(value.`delayMs`, buf)
+                Unit
+            }
             is AndroidCommand.StopAware -> {
-                buf.putInt(12)
+                buf.putInt(16)
                 Unit
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
@@ -1947,19 +2031,32 @@ public object FfiConverterTypeAndroidCommand : FfiConverterRustBuffer<AndroidCom
 
 sealed class AndroidEvent {
     
-    object PermissionsGranted : AndroidEvent()
+    object CameraPermissionGranted : AndroidEvent()
     
     
-    object PermissionsDenied : AndroidEvent()
+    object CameraPermissionDenied : AndroidEvent()
     
     
-    data class CameraCaptureCompleted(
-        val `tempPath`: kotlin.String) : AndroidEvent() {
+    object NearbyPermissionGranted : AndroidEvent()
+    
+    
+    object NearbyPermissionDenied : AndroidEvent()
+    
+    
+    data class CameraCaptureSaved(
+        val `outputPath`: kotlin.String) : AndroidEvent() {
         companion object
     }
     
-    object CameraCaptureCancelled : AndroidEvent()
+    data class CameraCaptureFailed(
+        val `message`: kotlin.String) : AndroidEvent() {
+        companion object
+    }
     
+    data class AwareAvailabilityChanged(
+        val `available`: kotlin.Boolean) : AndroidEvent() {
+        companion object
+    }
     
     object AwareAttachSucceeded : AndroidEvent()
     
@@ -2052,6 +2149,11 @@ sealed class AndroidEvent {
         companion object
     }
     
+    data class ReconnectPeer(
+        val `peerInstance`: kotlin.String) : AndroidEvent() {
+        companion object
+    }
+    
 
     
     companion object
@@ -2063,63 +2165,73 @@ sealed class AndroidEvent {
 public object FfiConverterTypeAndroidEvent : FfiConverterRustBuffer<AndroidEvent>{
     override fun read(buf: ByteBuffer): AndroidEvent {
         return when(buf.getInt()) {
-            1 -> AndroidEvent.PermissionsGranted
-            2 -> AndroidEvent.PermissionsDenied
-            3 -> AndroidEvent.CameraCaptureCompleted(
+            1 -> AndroidEvent.CameraPermissionGranted
+            2 -> AndroidEvent.CameraPermissionDenied
+            3 -> AndroidEvent.NearbyPermissionGranted
+            4 -> AndroidEvent.NearbyPermissionDenied
+            5 -> AndroidEvent.CameraCaptureSaved(
                 FfiConverterString.read(buf),
                 )
-            4 -> AndroidEvent.CameraCaptureCancelled
-            5 -> AndroidEvent.AwareAttachSucceeded
-            6 -> AndroidEvent.AwareAttachFailed
-            7 -> AndroidEvent.PublishStarted
-            8 -> AndroidEvent.SubscribeStarted
-            9 -> AndroidEvent.PublishTerminated
-            10 -> AndroidEvent.SubscribeTerminated
-            11 -> AndroidEvent.PeerDiscovered(
+            6 -> AndroidEvent.CameraCaptureFailed(
+                FfiConverterString.read(buf),
+                )
+            7 -> AndroidEvent.AwareAvailabilityChanged(
+                FfiConverterBoolean.read(buf),
+                )
+            8 -> AndroidEvent.AwareAttachSucceeded
+            9 -> AndroidEvent.AwareAttachFailed
+            10 -> AndroidEvent.PublishStarted
+            11 -> AndroidEvent.SubscribeStarted
+            12 -> AndroidEvent.PublishTerminated
+            13 -> AndroidEvent.SubscribeTerminated
+            14 -> AndroidEvent.PeerDiscovered(
                 FfiConverterLong.read(buf),
                 FfiConverterOptionalString.read(buf),
                 )
-            12 -> AndroidEvent.DiscoveryMessageReceived(
+            15 -> AndroidEvent.DiscoveryMessageReceived(
                 FfiConverterTypeDiscoveryChannel.read(buf),
                 FfiConverterLong.read(buf),
                 FfiConverterString.read(buf),
                 )
-            13 -> AndroidEvent.DiscoveryMessageSent(
+            16 -> AndroidEvent.DiscoveryMessageSent(
                 FfiConverterLong.read(buf),
                 )
-            14 -> AndroidEvent.DiscoveryMessageFailed(
+            17 -> AndroidEvent.DiscoveryMessageFailed(
                 FfiConverterLong.read(buf),
                 )
-            15 -> AndroidEvent.ResponderNetworkAvailable(
+            18 -> AndroidEvent.ResponderNetworkAvailable(
                 FfiConverterLong.read(buf),
                 )
-            16 -> AndroidEvent.ResponderNetworkLost(
+            19 -> AndroidEvent.ResponderNetworkLost(
                 FfiConverterLong.read(buf),
                 )
-            17 -> AndroidEvent.InitiatorNetworkAvailable(
+            20 -> AndroidEvent.InitiatorNetworkAvailable(
                 FfiConverterLong.read(buf),
                 )
-            18 -> AndroidEvent.InitiatorNetworkLost(
+            21 -> AndroidEvent.InitiatorNetworkLost(
                 FfiConverterLong.read(buf),
                 )
-            19 -> AndroidEvent.InitiatorCapabilities(
+            22 -> AndroidEvent.InitiatorCapabilities(
                 FfiConverterLong.read(buf),
                 FfiConverterInt.read(buf),
                 FfiConverterOptionalString.read(buf),
                 )
-            20 -> AndroidEvent.SocketConnected(
+            23 -> AndroidEvent.SocketConnected(
                 FfiConverterLong.read(buf),
                 FfiConverterTypeSocketSide.read(buf),
                 )
-            21 -> AndroidEvent.SocketClosed(
+            24 -> AndroidEvent.SocketClosed(
                 FfiConverterLong.read(buf),
                 )
-            22 -> AndroidEvent.SocketRead(
+            25 -> AndroidEvent.SocketRead(
                 FfiConverterLong.read(buf),
                 FfiConverterByteArray.read(buf),
                 )
-            23 -> AndroidEvent.SocketError(
+            26 -> AndroidEvent.SocketError(
                 FfiConverterLong.read(buf),
+                FfiConverterString.read(buf),
+                )
+            27 -> AndroidEvent.ReconnectPeer(
                 FfiConverterString.read(buf),
                 )
             else -> throw RuntimeException("invalid enum value, something is very wrong!!")
@@ -2127,29 +2239,49 @@ public object FfiConverterTypeAndroidEvent : FfiConverterRustBuffer<AndroidEvent
     }
 
     override fun allocationSize(value: AndroidEvent) = when(value) {
-        is AndroidEvent.PermissionsGranted -> {
+        is AndroidEvent.CameraPermissionGranted -> {
             // Add the size for the Int that specifies the variant plus the size needed for all fields
             (
                 4UL
             )
         }
-        is AndroidEvent.PermissionsDenied -> {
+        is AndroidEvent.CameraPermissionDenied -> {
             // Add the size for the Int that specifies the variant plus the size needed for all fields
             (
                 4UL
             )
         }
-        is AndroidEvent.CameraCaptureCompleted -> {
+        is AndroidEvent.NearbyPermissionGranted -> {
             // Add the size for the Int that specifies the variant plus the size needed for all fields
             (
                 4UL
-                + FfiConverterString.allocationSize(value.`tempPath`)
             )
         }
-        is AndroidEvent.CameraCaptureCancelled -> {
+        is AndroidEvent.NearbyPermissionDenied -> {
             // Add the size for the Int that specifies the variant plus the size needed for all fields
             (
                 4UL
+            )
+        }
+        is AndroidEvent.CameraCaptureSaved -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`outputPath`)
+            )
+        }
+        is AndroidEvent.CameraCaptureFailed -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`message`)
+            )
+        }
+        is AndroidEvent.AwareAvailabilityChanged -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterBoolean.allocationSize(value.`available`)
             )
         }
         is AndroidEvent.AwareAttachSucceeded -> {
@@ -2287,122 +2419,148 @@ public object FfiConverterTypeAndroidEvent : FfiConverterRustBuffer<AndroidEvent
                 + FfiConverterString.allocationSize(value.`message`)
             )
         }
+        is AndroidEvent.ReconnectPeer -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`peerInstance`)
+            )
+        }
     }
 
     override fun write(value: AndroidEvent, buf: ByteBuffer) {
         when(value) {
-            is AndroidEvent.PermissionsGranted -> {
+            is AndroidEvent.CameraPermissionGranted -> {
                 buf.putInt(1)
                 Unit
             }
-            is AndroidEvent.PermissionsDenied -> {
+            is AndroidEvent.CameraPermissionDenied -> {
                 buf.putInt(2)
                 Unit
             }
-            is AndroidEvent.CameraCaptureCompleted -> {
+            is AndroidEvent.NearbyPermissionGranted -> {
                 buf.putInt(3)
-                FfiConverterString.write(value.`tempPath`, buf)
                 Unit
             }
-            is AndroidEvent.CameraCaptureCancelled -> {
+            is AndroidEvent.NearbyPermissionDenied -> {
                 buf.putInt(4)
                 Unit
             }
-            is AndroidEvent.AwareAttachSucceeded -> {
+            is AndroidEvent.CameraCaptureSaved -> {
                 buf.putInt(5)
+                FfiConverterString.write(value.`outputPath`, buf)
                 Unit
             }
-            is AndroidEvent.AwareAttachFailed -> {
+            is AndroidEvent.CameraCaptureFailed -> {
                 buf.putInt(6)
+                FfiConverterString.write(value.`message`, buf)
                 Unit
             }
-            is AndroidEvent.PublishStarted -> {
+            is AndroidEvent.AwareAvailabilityChanged -> {
                 buf.putInt(7)
+                FfiConverterBoolean.write(value.`available`, buf)
                 Unit
             }
-            is AndroidEvent.SubscribeStarted -> {
+            is AndroidEvent.AwareAttachSucceeded -> {
                 buf.putInt(8)
                 Unit
             }
-            is AndroidEvent.PublishTerminated -> {
+            is AndroidEvent.AwareAttachFailed -> {
                 buf.putInt(9)
                 Unit
             }
-            is AndroidEvent.SubscribeTerminated -> {
+            is AndroidEvent.PublishStarted -> {
                 buf.putInt(10)
                 Unit
             }
-            is AndroidEvent.PeerDiscovered -> {
+            is AndroidEvent.SubscribeStarted -> {
                 buf.putInt(11)
+                Unit
+            }
+            is AndroidEvent.PublishTerminated -> {
+                buf.putInt(12)
+                Unit
+            }
+            is AndroidEvent.SubscribeTerminated -> {
+                buf.putInt(13)
+                Unit
+            }
+            is AndroidEvent.PeerDiscovered -> {
+                buf.putInt(14)
                 FfiConverterLong.write(value.`handleId`, buf)
                 FfiConverterOptionalString.write(value.`instance`, buf)
                 Unit
             }
             is AndroidEvent.DiscoveryMessageReceived -> {
-                buf.putInt(12)
+                buf.putInt(15)
                 FfiConverterTypeDiscoveryChannel.write(value.`channel`, buf)
                 FfiConverterLong.write(value.`handleId`, buf)
                 FfiConverterString.write(value.`payload`, buf)
                 Unit
             }
             is AndroidEvent.DiscoveryMessageSent -> {
-                buf.putInt(13)
+                buf.putInt(16)
                 FfiConverterLong.write(value.`messageId`, buf)
                 Unit
             }
             is AndroidEvent.DiscoveryMessageFailed -> {
-                buf.putInt(14)
+                buf.putInt(17)
                 FfiConverterLong.write(value.`messageId`, buf)
                 Unit
             }
             is AndroidEvent.ResponderNetworkAvailable -> {
-                buf.putInt(15)
-                FfiConverterLong.write(value.`connectionId`, buf)
-                Unit
-            }
-            is AndroidEvent.ResponderNetworkLost -> {
-                buf.putInt(16)
-                FfiConverterLong.write(value.`connectionId`, buf)
-                Unit
-            }
-            is AndroidEvent.InitiatorNetworkAvailable -> {
-                buf.putInt(17)
-                FfiConverterLong.write(value.`connectionId`, buf)
-                Unit
-            }
-            is AndroidEvent.InitiatorNetworkLost -> {
                 buf.putInt(18)
                 FfiConverterLong.write(value.`connectionId`, buf)
                 Unit
             }
-            is AndroidEvent.InitiatorCapabilities -> {
+            is AndroidEvent.ResponderNetworkLost -> {
                 buf.putInt(19)
+                FfiConverterLong.write(value.`connectionId`, buf)
+                Unit
+            }
+            is AndroidEvent.InitiatorNetworkAvailable -> {
+                buf.putInt(20)
+                FfiConverterLong.write(value.`connectionId`, buf)
+                Unit
+            }
+            is AndroidEvent.InitiatorNetworkLost -> {
+                buf.putInt(21)
+                FfiConverterLong.write(value.`connectionId`, buf)
+                Unit
+            }
+            is AndroidEvent.InitiatorCapabilities -> {
+                buf.putInt(22)
                 FfiConverterLong.write(value.`connectionId`, buf)
                 FfiConverterInt.write(value.`port`, buf)
                 FfiConverterOptionalString.write(value.`ipv6`, buf)
                 Unit
             }
             is AndroidEvent.SocketConnected -> {
-                buf.putInt(20)
+                buf.putInt(23)
                 FfiConverterLong.write(value.`connectionId`, buf)
                 FfiConverterTypeSocketSide.write(value.`side`, buf)
                 Unit
             }
             is AndroidEvent.SocketClosed -> {
-                buf.putInt(21)
+                buf.putInt(24)
                 FfiConverterLong.write(value.`connectionId`, buf)
                 Unit
             }
             is AndroidEvent.SocketRead -> {
-                buf.putInt(22)
+                buf.putInt(25)
                 FfiConverterLong.write(value.`connectionId`, buf)
                 FfiConverterByteArray.write(value.`bytes`, buf)
                 Unit
             }
             is AndroidEvent.SocketError -> {
-                buf.putInt(23)
+                buf.putInt(26)
                 FfiConverterLong.write(value.`connectionId`, buf)
                 FfiConverterString.write(value.`message`, buf)
+                Unit
+            }
+            is AndroidEvent.ReconnectPeer -> {
+                buf.putInt(27)
+                FfiConverterString.write(value.`peerInstance`, buf)
                 Unit
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
@@ -2537,6 +2695,12 @@ sealed class UiAction {
     object TakePhotoRequested : UiAction()
     
     
+    object CapturePhotoRequested : UiAction()
+    
+    
+    object CancelCameraRequested : UiAction()
+    
+    
     object ToggleNearbyRequested : UiAction()
     
     
@@ -2563,18 +2727,32 @@ public object FfiConverterTypeUiAction : FfiConverterRustBuffer<UiAction>{
     override fun read(buf: ByteBuffer): UiAction {
         return when(buf.getInt()) {
             1 -> UiAction.TakePhotoRequested
-            2 -> UiAction.ToggleNearbyRequested
-            3 -> UiAction.ClearDemoDataRequested
-            4 -> UiAction.SwitchPage(
+            2 -> UiAction.CapturePhotoRequested
+            3 -> UiAction.CancelCameraRequested
+            4 -> UiAction.ToggleNearbyRequested
+            5 -> UiAction.ClearDemoDataRequested
+            6 -> UiAction.SwitchPage(
                 FfiConverterTypeUiPage.read(buf),
                 )
-            5 -> UiAction.ClearLogRequested
+            7 -> UiAction.ClearLogRequested
             else -> throw RuntimeException("invalid enum value, something is very wrong!!")
         }
     }
 
     override fun allocationSize(value: UiAction) = when(value) {
         is UiAction.TakePhotoRequested -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is UiAction.CapturePhotoRequested -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is UiAction.CancelCameraRequested -> {
             // Add the size for the Int that specifies the variant plus the size needed for all fields
             (
                 4UL
@@ -2613,21 +2791,29 @@ public object FfiConverterTypeUiAction : FfiConverterRustBuffer<UiAction>{
                 buf.putInt(1)
                 Unit
             }
-            is UiAction.ToggleNearbyRequested -> {
+            is UiAction.CapturePhotoRequested -> {
                 buf.putInt(2)
                 Unit
             }
-            is UiAction.ClearDemoDataRequested -> {
+            is UiAction.CancelCameraRequested -> {
                 buf.putInt(3)
                 Unit
             }
-            is UiAction.SwitchPage -> {
+            is UiAction.ToggleNearbyRequested -> {
                 buf.putInt(4)
+                Unit
+            }
+            is UiAction.ClearDemoDataRequested -> {
+                buf.putInt(5)
+                Unit
+            }
+            is UiAction.SwitchPage -> {
+                buf.putInt(6)
                 FfiConverterTypeUiPage.write(value.v1, buf)
                 Unit
             }
             is UiAction.ClearLogRequested -> {
-                buf.putInt(5)
+                buf.putInt(7)
                 Unit
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
