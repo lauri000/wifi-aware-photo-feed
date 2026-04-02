@@ -45,10 +45,10 @@ class HashtreeDemoStore(context: Context) {
     }
 
     fun seedLocalSet(setId: AudioSetId): List<AudioTrackInfo> {
-        clearDir(localDir)
         ensureDirs()
 
-        val tracks =
+        val existingTracks = currentLocalTracks()
+        val seededTracks =
             AudioDemoCatalog.tracksForSet(setId).map { spec ->
                 val tempFile = File(tmpDir, "${spec.id}.wav")
                 writeDeterministicWav(tempFile, spec)
@@ -70,8 +70,13 @@ class HashtreeDemoStore(context: Context) {
                 )
             }
 
-        writeManifest(localManifestFile, tracks)
-        return tracks
+        val seededIds = seededTracks.map { it.id }.toSet()
+        val updatedTracks =
+            (existingTracks.filterNot { it.id in seededIds } + seededTracks)
+                .sortedBy { it.id }
+
+        writeManifest(localManifestFile, updatedTracks)
+        return updatedTracks
     }
 
     fun currentLocalTracks(): List<AudioTrackInfo> = readManifest(localManifestFile, localDir)

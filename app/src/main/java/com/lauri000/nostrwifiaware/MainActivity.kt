@@ -400,7 +400,7 @@ class MainActivity : Activity() {
                 addView(
                     TextView(this@MainActivity).apply {
                         text =
-                            "Seed a shelf on one phone. Start Host on the receiver, Start Client on the phone carrying the seeded set, then fetch from the host or share manually from the client."
+                            "Seed one or both sets on the sender phone. The second seed adds tracks to the same local shelf, so you can build a full 4-track shelf before fetching it onto an empty receiver."
                         textSize = 13f
                         setTextColor(parseColor("#9fb2ce"))
                         setPadding(0, dp(6), 0, dp(14))
@@ -529,11 +529,14 @@ class MainActivity : Activity() {
 
         try {
             localTracks = demoStore.seedLocalSet(setId)
-            selectedTrackNhash = localTracks.firstOrNull()?.nhash
+            selectedTrackNhash =
+                localTracks.firstOrNull { it.setLabel == setId.label }?.nhash
+                    ?: localTracks.firstOrNull()?.nhash
             updateTrackViews()
             updateControls()
-            appendLog("Seeded ${setId.label} with ${localTracks.size} tracks.")
-            localTracks.forEach { track ->
+            appendLog("Added ${setId.label} to the local shelf. Local shelf now has ${localTracks.size} tracks.")
+            AudioDemoCatalog.tracksForSet(setId).forEach { spec ->
+                val track = localTracks.firstOrNull { it.id == spec.id } ?: return@forEach
                 appendLog(
                     "Seeded ${track.id} (${track.title}) nhash=${track.nhash} size=${formatByteCount(track.sizeBytes)}",
                 )
@@ -893,6 +896,7 @@ class MainActivity : Activity() {
 
                     commandTrack -> {
                         val trackId = input.readUTF()
+                        val trackSetLabel = input.readUTF()
                         val announcedNhash = input.readUTF()
                         val expectedBytes = input.readLong()
                         if (expectedBytes <= 0L) {
@@ -901,7 +905,7 @@ class MainActivity : Activity() {
                         }
 
                         appendLog(
-                            "Host receiving track $trackId from $activeSetLabel nhash=$announcedNhash (${formatByteCount(expectedBytes)}) over Wi-Fi Aware",
+                            "Host receiving track $trackId from $trackSetLabel inside $activeSetLabel nhash=$announcedNhash (${formatByteCount(expectedBytes)}) over Wi-Fi Aware",
                         )
                         val tempFile = demoStore.createIncomingTempFile(trackId)
                         var remaining = expectedBytes
@@ -924,7 +928,7 @@ class MainActivity : Activity() {
                                     tempFile = tempFile,
                                     trackId = trackId,
                                     announcedNhash = announcedNhash,
-                                    setLabel = activeSetLabel,
+                                    setLabel = trackSetLabel,
                                 )
                             } catch (e: Exception) {
                                 tempFile.delete()
@@ -1144,7 +1148,7 @@ class MainActivity : Activity() {
             return
         }
 
-        val setLabel = localTracks.first().setLabel
+        val setLabel = shelfLabel(localTracks)
         transferInFlight = true
         updateControls()
 
@@ -1162,6 +1166,7 @@ class MainActivity : Activity() {
                     )
                     output.writeUTF(commandTrack)
                     output.writeUTF(track.id)
+                    output.writeUTF(track.setLabel)
                     output.writeUTF(track.nhash)
                     output.writeLong(track.sizeBytes)
 
@@ -1336,11 +1341,13 @@ class MainActivity : Activity() {
             val filteredReceived = filteredTracks(receivedTracks)
             val activeTrack = selectedDisplayTrack(filteredLocal, filteredReceived)
 
-            val localSetLabel = localTracks.firstOrNull()?.setLabel ?: "none"
-            localSummaryView.text = "Local shelf: $localSetLabel  ·  ${localTracks.size} tracks"
+            val localSetLabel = shelfLabel(localTracks)
+            val receivedSetLabel = shelfLabel(receivedTracks)
+            localSummaryView.text = "Local shelf: ${localTracks.size} tracks  ·  $localSetLabel"
             localSummaryView.setTextColor(parseColor("#d7def0"))
             localSummaryView.textSize = 14f
-            receivedSummaryView.text = "Nearby shelf: ${receivedTracks.size} fetched  ·  ${formatByteCount(demoStore.totalStorageBytes())}"
+            receivedSummaryView.text =
+                "Nearby shelf: ${receivedTracks.size} fetched  ·  $receivedSetLabel  ·  ${formatByteCount(demoStore.totalStorageBytes())}"
             receivedSummaryView.setTextColor(parseColor("#d7def0"))
             receivedSummaryView.textSize = 14f
             storageView.text = "STORAGE  ${formatByteCount(demoStore.totalStorageBytes())}"
@@ -1690,6 +1697,17 @@ class MainActivity : Activity() {
             Role.HOST -> "Host"
             Role.CLIENT -> "Client"
         }
+    }
+
+    private fun shelfLabel(tracks: List<AudioTrackInfo>): String {
+        if (tracks.isEmpty()) {
+            return "none"
+        }
+        return tracks
+            .map { it.setLabel }
+            .distinct()
+            .sorted()
+            .joinToString(" + ")
     }
 
     private fun peerLabel(peerHandle: PeerHandle): String {

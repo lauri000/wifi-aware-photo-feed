@@ -9,7 +9,7 @@ The codebase currently contains an audio-first version of increment 2 of the nea
 Use it like this:
 
 1. Open the app on both phones.
-2. Tap `Seed Set A` on one phone, or `Seed Set B` on the other.
+2. On the phone that will act as the sender, tap `Seed Set A`, then optionally tap `Seed Set B` as well. The second seed adds tracks instead of replacing the first, so one phone can carry all 4 demo songs.
 3. Tap `Start Host` on the receiving phone.
 4. Tap `Start Client` on the phone carrying the seeded shelf.
 5. Wait for the logs to show that the Wi-Fi Aware TCP socket is connected.
