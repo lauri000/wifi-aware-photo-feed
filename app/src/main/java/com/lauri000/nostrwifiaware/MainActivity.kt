@@ -3,6 +3,10 @@ package com.lauri000.nostrwifiaware
 import android.Manifest
 import android.app.Activity
 import android.content.pm.PackageManager
+import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
+import android.media.MediaPlayer
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -23,10 +27,15 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.text.Editable
+import android.text.InputType
+import android.text.TextWatcher
 import android.util.Log
 import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -46,6 +55,7 @@ import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 class MainActivity : Activity() {
     private enum class Role {
@@ -65,6 +75,7 @@ class MainActivity : Activity() {
         private const val commandTrack = "TRACK"
         private const val commandDone = "DONE"
         private const val commandAck = "ACK"
+        private const val fetchMessagePrefix = "fetch:"
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -81,17 +92,27 @@ class MainActivity : Activity() {
     private lateinit var statusView: TextView
     private lateinit var roleView: TextView
     private lateinit var transportView: TextView
+    private lateinit var storageView: TextView
     private lateinit var localSummaryView: TextView
     private lateinit var receivedSummaryView: TextView
-    private lateinit var storageView: TextView
-    private lateinit var localTracksView: TextView
-    private lateinit var receivedTracksView: TextView
+    private lateinit var heroArtView: TextView
+    private lateinit var heroEyebrowView: TextView
+    private lateinit var heroTitleView: TextView
+    private lateinit var heroMetaView: TextView
+    private lateinit var heroDetailView: TextView
+    private lateinit var heroActionButton: Button
+    private lateinit var searchInput: EditText
+    private lateinit var localTracksContainer: LinearLayout
+    private lateinit var receivedTracksContainer: LinearLayout
+    private lateinit var localEmptyView: TextView
+    private lateinit var receivedEmptyView: TextView
     private lateinit var logView: TextView
     private lateinit var seedSetAButton: Button
     private lateinit var seedSetBButton: Button
     private lateinit var hostButton: Button
     private lateinit var clientButton: Button
-    private lateinit var sendSetButton: Button
+    private lateinit var fetchPeerButton: Button
+    private lateinit var shareNowButton: Button
     private lateinit var clearDataButton: Button
     private lateinit var stopButton: Button
     private lateinit var clearLogButton: Button
@@ -99,9 +120,14 @@ class MainActivity : Activity() {
     private var role = Role.IDLE
     private var pendingRole: Role? = null
     private var transportStatus = "Idle"
+    private var searchQuery = ""
+    private var selectedTrackNhash: String? = null
+    private var playingTrackNhash: String? = null
 
     private var localTracks: List<AudioTrackInfo> = emptyList()
     private var receivedTracks: List<AudioTrackInfo> = emptyList()
+
+    private var mediaPlayer: MediaPlayer? = null
 
     private var awareSession: WifiAwareSession? = null
     private var publishSession: PublishDiscoverySession? = null
@@ -129,6 +155,9 @@ class MainActivity : Activity() {
     @Volatile
     private var transferInFlight = false
 
+    @Volatile
+    private var pendingRemoteFetchRequest = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -144,12 +173,13 @@ class MainActivity : Activity() {
         updateTrackViews()
         updateControls()
         appendLog(
-            "Increment 2: seed audio Set A or Set B locally, then send the seeded tracks over Wi-Fi Aware with receiver-side nhash verification.",
+            "Audio-first nearby demo loaded. Seed a local set, attach two phones over Wi-Fi Aware, then fetch or share the set over the data path.",
         )
     }
 
     override fun onDestroy() {
         stopAll("Activity destroyed")
+        releasePlayer()
         ioExecutor.shutdownNow()
         super.onDestroy()
     }
@@ -178,120 +208,316 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun buildUi(): LinearLayout {
-        val padding = (16 * resources.displayMetrics.density).toInt()
+    private fun buildUi(): ScrollView {
+        val contentPadding = dp(20)
+        val sectionSpacing = dp(18)
 
-        statusView = TextView(this).apply { textSize = 18f }
-        roleView = TextView(this)
-        transportView = TextView(this)
+        statusView = buildStatPill()
+        roleView = buildStatPill()
+        transportView = buildStatPill()
+        storageView = buildStatPill()
         localSummaryView = TextView(this)
         receivedSummaryView = TextView(this)
-        storageView = TextView(this)
-        localTracksView = TextView(this).apply { setTextIsSelectable(true) }
-        receivedTracksView = TextView(this).apply { setTextIsSelectable(true) }
 
-        val hintView = TextView(this).apply {
-            text =
-                "Seed Set A on one phone or Set B on the other, connect Host and Client over Wi-Fi Aware, then tap Send Seeded Set. This increment only proves seeded audio files can be verified and moved over the Wi-Fi Aware data path."
+        heroArtView = TextView(this).apply {
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            textSize = 22f
+            setTypeface(Typeface.MONOSPACE, Typeface.BOLD)
+            layoutParams = LinearLayout.LayoutParams(dp(92), dp(92))
+        }
+        heroEyebrowView = TextView(this).apply {
+            textSize = 12f
+            setTextColor(parseColor("#9fb2ce"))
+            setTypeface(Typeface.MONOSPACE, Typeface.BOLD)
+        }
+        heroTitleView = TextView(this).apply {
+            textSize = 28f
+            setTextColor(Color.WHITE)
+            setTypeface(Typeface.SANS_SERIF, Typeface.BOLD)
+        }
+        heroMetaView = TextView(this).apply {
+            textSize = 15f
+            setTextColor(parseColor("#d7def0"))
+        }
+        heroDetailView = TextView(this).apply {
+            textSize = 13f
+            setTextColor(parseColor("#9fb2ce"))
+        }
+        heroActionButton = buildAccentButton("Play", "#f59e0b", "#f97316").apply {
+            setOnClickListener { selectedDisplayTrack()?.let(::togglePlayback) }
         }
 
-        seedSetAButton = Button(this).apply {
-            text = "Seed Set A"
+        searchInput = EditText(this).apply {
+            hint = "Search title, artist, or album"
+            setHintTextColor(parseColor("#7f8aa3"))
+            setTextColor(Color.WHITE)
+            background = roundedFill(parseColor("#0d1422"), parseColor("#26344a"))
+            inputType = InputType.TYPE_CLASS_TEXT
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+            addTextChangedListener(
+                object : TextWatcher {
+                    override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+
+                    override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+
+                    override fun afterTextChanged(s: Editable?) {
+                        searchQuery = s?.toString().orEmpty()
+                        updateTrackViews()
+                    }
+                },
+            )
+        }
+
+        seedSetAButton = buildAccentButton("Seed Set A", "#ff784f", "#ffd166").apply {
             setOnClickListener { seedAudioSet(AudioSetId.SET_A) }
         }
-
-        seedSetBButton = Button(this).apply {
-            text = "Seed Set B"
+        seedSetBButton = buildAccentButton("Seed Set B", "#ec4899", "#8b5cf6").apply {
             setOnClickListener { seedAudioSet(AudioSetId.SET_B) }
         }
-
-        clearDataButton = Button(this).apply {
-            text = "Clear Demo Data"
-            setOnClickListener { clearDemoData() }
-        }
-
-        hostButton = Button(this).apply {
-            text = "Start Host"
+        hostButton = buildMutedButton("Start Host").apply {
             setOnClickListener { ensurePermissionsAndStart(Role.HOST) }
         }
-
-        clientButton = Button(this).apply {
-            text = "Start Client"
+        clientButton = buildMutedButton("Start Client").apply {
             setOnClickListener { ensurePermissionsAndStart(Role.CLIENT) }
         }
-
-        stopButton = Button(this).apply {
-            text = "Stop"
+        stopButton = buildMutedButton("Stop").apply {
             setOnClickListener { stopAll("Stopped manually") }
         }
-
-        sendSetButton = Button(this).apply {
-            text = "Send Seeded Set"
-            setOnClickListener { sendSeededSet() }
+        fetchPeerButton = buildAccentButton("Fetch From Peer", "#38bdf8", "#06b6d4").apply {
+            setOnClickListener { requestFetchFromPeer() }
         }
-
-        clearLogButton = Button(this).apply {
-            text = "Clear Log"
+        shareNowButton = buildMutedButton("Share Seeded Set").apply {
+            setOnClickListener { sendSeededSet("manual share") }
+        }
+        clearDataButton = buildMutedButton("Clear Demo Data").apply {
+            setOnClickListener { clearDemoData() }
+        }
+        clearLogButton = buildGhostButton("Clear Log").apply {
             setOnClickListener {
                 logLines.clear()
                 renderLog()
             }
         }
 
-        val seedRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.START
-            addView(seedSetAButton)
-            addView(seedSetBButton)
-            addView(clearDataButton)
-        }
-
-        val roleRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.START
-            addView(hostButton)
-            addView(clientButton)
-            addView(stopButton)
-        }
-
-        val transferRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.START
-            addView(sendSetButton)
-            addView(clearLogButton)
-        }
+        localTracksContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        receivedTracksContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        localEmptyView = buildEmptyText()
+        receivedEmptyView = buildEmptyText()
 
         logView = TextView(this).apply {
+            setTextColor(parseColor("#b7c4da"))
+            textSize = 12f
             setTextIsSelectable(true)
+            setTypeface(Typeface.MONOSPACE)
         }
 
-        val scrollView = ScrollView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+        val headerCard =
+            cardContainer().apply {
+                addView(
+                    LinearLayout(this@MainActivity).apply {
+                        orientation = LinearLayout.VERTICAL
+                        addView(
+                            TextView(this@MainActivity).apply {
+                                text = "Nearby Audio"
+                                textSize = 30f
+                                setTextColor(Color.WHITE)
+                                setTypeface(Typeface.SANS_SERIF, Typeface.BOLD)
+                            },
+                        )
+                        addView(
+                            TextView(this@MainActivity).apply {
+                                text =
+                                    "A Wi-Fi Aware music shelf for deterministic hashtree-addressed audio."
+                                textSize = 14f
+                                setTextColor(parseColor("#9fb2ce"))
+                                setPadding(0, dp(6), 0, dp(14))
+                            },
+                        )
+                        addView(statRow(statusView, roleView))
+                        addView(
+                            spacer(dp(10)),
+                        )
+                        addView(statRow(transportView, storageView))
+                    },
+                )
+            }
+
+        val heroCard =
+            cardContainer(
+                colors = intArrayOf(parseColor("#171d31"), parseColor("#0d1220")),
+                strokeColor = parseColor("#2f4568"),
+            ).apply {
+                addView(
+                    LinearLayout(this@MainActivity).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        gravity = Gravity.CENTER_VERTICAL
+                        addView(heroArtView)
+                        addView(
+                            LinearLayout(this@MainActivity).apply {
+                                orientation = LinearLayout.VERTICAL
+                                setPadding(dp(16), 0, 0, 0)
+                                layoutParams =
+                                    LinearLayout.LayoutParams(
+                                        0,
+                                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                                        1f,
+                                    )
+                                addView(heroEyebrowView)
+                                addView(
+                                    heroTitleView.apply {
+                                        setPadding(0, dp(6), 0, 0)
+                                    },
+                                )
+                                addView(
+                                    heroMetaView.apply {
+                                        setPadding(0, dp(6), 0, 0)
+                                    },
+                                )
+                                addView(
+                                    heroDetailView.apply {
+                                        setPadding(0, dp(8), 0, 0)
+                                    },
+                                )
+                            },
+                        )
+                    },
+                )
+                addView(spacer(dp(16)))
+                addView(heroActionButton)
+            }
+
+        val actionCard =
+            cardContainer().apply {
+                addView(
+                    TextView(this@MainActivity).apply {
+                        text = "Transport Controls"
+                        textSize = 18f
+                        setTextColor(Color.WHITE)
+                        setTypeface(Typeface.SANS_SERIF, Typeface.BOLD)
+                    },
+                )
+                addView(
+                    TextView(this@MainActivity).apply {
+                        text =
+                            "Seed a shelf on one phone. Start Host on the receiver, Start Client on the phone carrying the seeded set, then fetch from the host or share manually from the client."
+                        textSize = 13f
+                        setTextColor(parseColor("#9fb2ce"))
+                        setPadding(0, dp(6), 0, dp(14))
+                    },
+                )
+                addView(localSummaryView)
+                addView(receivedSummaryView.apply { setPadding(0, dp(6), 0, dp(14)) })
+                addView(buttonRow(seedSetAButton, seedSetBButton))
+                addView(spacer(dp(10)))
+                addView(buttonRow(hostButton, clientButton, stopButton))
+                addView(spacer(dp(10)))
+                addView(buttonRow(fetchPeerButton, shareNowButton))
+                addView(spacer(dp(10)))
+                addView(buttonRow(clearDataButton, clearLogButton))
+            }
+
+        val searchCard =
+            cardContainer().apply {
+                addView(
+                    TextView(this@MainActivity).apply {
+                        text = "Search"
+                        textSize = 18f
+                        setTextColor(Color.WHITE)
+                        setTypeface(Typeface.SANS_SERIF, Typeface.BOLD)
+                    },
+                )
+                addView(
+                    TextView(this@MainActivity).apply {
+                        text = "Filter both local and fetched shelves instantly."
+                        textSize = 13f
+                        setTextColor(parseColor("#9fb2ce"))
+                        setPadding(0, dp(6), 0, dp(12))
+                    },
+                )
+                addView(searchInput)
+            }
+
+        val localSection =
+            cardContainer().apply {
+                addView(sectionTitle("Seeded On This Phone"))
+                addView(
+                    TextView(this@MainActivity).apply {
+                        text = "The client shares this shelf over Wi-Fi Aware."
+                        textSize = 13f
+                        setTextColor(parseColor("#9fb2ce"))
+                        setPadding(0, dp(6), 0, dp(12))
+                    },
+                )
+                addView(localTracksContainer)
+                addView(localEmptyView)
+            }
+
+        val receivedSection =
+            cardContainer().apply {
+                addView(sectionTitle("Fetched Nearby"))
+                addView(
+                    TextView(this@MainActivity).apply {
+                        text = "Every imported file is recomputed and accepted only if the hashtree nhash matches."
+                        textSize = 13f
+                        setTextColor(parseColor("#9fb2ce"))
+                        setPadding(0, dp(6), 0, dp(12))
+                    },
+                )
+                addView(receivedTracksContainer)
+                addView(receivedEmptyView)
+            }
+
+        val logSection =
+            cardContainer(
+                colors = intArrayOf(parseColor("#0a0f18"), parseColor("#05080d")),
+                strokeColor = parseColor("#233047"),
+            ).apply {
+                addView(sectionTitle("Transport Log"))
+                addView(
+                    TextView(this@MainActivity).apply {
+                        text = "This is the ground truth when you want to verify the transfer really crossed the Wi-Fi Aware data path."
+                        textSize = 13f
+                        setTextColor(parseColor("#9fb2ce"))
+                        setPadding(0, dp(6), 0, dp(12))
+                    },
+                )
+                addView(logView)
+            }
+
+        val content =
+            LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(contentPadding, contentPadding, contentPadding, contentPadding)
+                addView(headerCard)
+                addView(spacer(sectionSpacing))
+                addView(heroCard)
+                addView(spacer(sectionSpacing))
+                addView(actionCard)
+                addView(spacer(sectionSpacing))
+                addView(searchCard)
+                addView(spacer(sectionSpacing))
+                addView(localSection)
+                addView(spacer(sectionSpacing))
+                addView(receivedSection)
+                addView(spacer(sectionSpacing))
+                addView(logSection)
+                addView(spacer(dp(24)))
+            }
+
+        return ScrollView(this).apply {
+            background =
+                GradientDrawable(
+                    GradientDrawable.Orientation.TOP_BOTTOM,
+                    intArrayOf(parseColor("#0d1220"), parseColor("#05070c")),
+                )
             addView(
-                logView,
+                content,
                 ViewGroup.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT,
                 ),
             )
-        }
-
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(padding, padding, padding, padding)
-            addView(statusView)
-            addView(roleView)
-            addView(transportView)
-            addView(localSummaryView)
-            addView(receivedSummaryView)
-            addView(storageView)
-            addView(hintView)
-            addView(seedRow)
-            addView(roleRow)
-            addView(transferRow)
-            addView(localTracksView)
-            addView(receivedTracksView)
-            addView(scrollView)
         }
     }
 
@@ -303,6 +529,7 @@ class MainActivity : Activity() {
 
         try {
             localTracks = demoStore.seedLocalSet(setId)
+            selectedTrackNhash = localTracks.firstOrNull()?.nhash
             updateTrackViews()
             updateControls()
             appendLog("Seeded ${setId.label} with ${localTracks.size} tracks.")
@@ -321,7 +548,9 @@ class MainActivity : Activity() {
             stopAll("Stopped for demo data clear")
         }
 
+        releasePlayer()
         demoStore.clearAll()
+        selectedTrackNhash = null
         reloadTrackState()
         updateTrackViews()
         updateControls()
@@ -346,9 +575,10 @@ class MainActivity : Activity() {
             return
         }
 
-        val missingPermissions = requiredRuntimePermissions().filter {
-            checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED
-        }
+        val missingPermissions =
+            requiredRuntimePermissions().filter {
+                checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED
+            }
 
         pendingRole = selectedRole
         if (missingPermissions.isNotEmpty()) {
@@ -373,11 +603,14 @@ class MainActivity : Activity() {
             pendingRole = null
             setStatus("Unavailable")
             setTransportStatus("Wi-Fi Aware unavailable")
-            appendLog("Wi-Fi Aware is unavailable. Check Wi-Fi, location services, or hotspot/tethering state.")
+            appendLog(
+                "Wi-Fi Aware is unavailable. Check Wi-Fi, location services, or hotspot/tethering state.",
+            )
             return
         }
 
         pendingRole = null
+        pendingRemoteFetchRequest = false
         role = selectedRole
         nextMessageId = 1
         activePeerHandle = null
@@ -420,10 +653,11 @@ class MainActivity : Activity() {
     }
 
     private fun startPublishHost(session: WifiAwareSession) {
-        val config = PublishConfig.Builder()
-            .setServiceName(serviceName)
-            .setServiceSpecificInfo("host:$appInstance".toByteArray())
-            .build()
+        val config =
+            PublishConfig.Builder()
+                .setServiceName(serviceName)
+                .setServiceSpecificInfo("host:$appInstance".toByteArray())
+                .build()
 
         session.publish(
             config,
@@ -466,9 +700,10 @@ class MainActivity : Activity() {
     }
 
     private fun startSubscribeClient(session: WifiAwareSession) {
-        val config = SubscribeConfig.Builder()
-            .setServiceName(serviceName)
-            .build()
+        val config =
+            SubscribeConfig.Builder()
+                .setServiceName(serviceName)
+                .build()
 
         session.subscribe(
             config,
@@ -516,6 +751,11 @@ class MainActivity : Activity() {
                     if (text.startsWith("ready:")) {
                         handleClientReady(peerHandle)
                     }
+                    if (text.startsWith(fetchMessagePrefix)) {
+                        pendingRemoteFetchRequest = true
+                        appendLog("Client received a fetch request from the host.")
+                        maybeStartPendingFetch()
+                    }
                 }
 
                 override fun onMessageSendSucceeded(messageId: Int) {
@@ -553,41 +793,44 @@ class MainActivity : Activity() {
             appendLog("Host server socket listening on port ${serverSocket.localPort}")
             ioExecutor.execute { acceptHostConnections(serverSocket) }
 
-            val specifier = WifiAwareNetworkSpecifier.Builder(session, peerHandle)
-                .setPskPassphrase(securePassphrase)
-                .setPort(serverSocket.localPort)
-                .setTransportProtocol(tcpProtocol)
-                .build()
+            val specifier =
+                WifiAwareNetworkSpecifier.Builder(session, peerHandle)
+                    .setPskPassphrase(securePassphrase)
+                    .setPort(serverSocket.localPort)
+                    .setTransportProtocol(tcpProtocol)
+                    .build()
 
-            val request = NetworkRequest.Builder()
-                .addTransportType(NetworkCapabilities.TRANSPORT_WIFI_AWARE)
-                .setNetworkSpecifier(specifier)
-                .build()
+            val request =
+                NetworkRequest.Builder()
+                    .addTransportType(NetworkCapabilities.TRANSPORT_WIFI_AWARE)
+                    .setNetworkSpecifier(specifier)
+                    .build()
 
-            val callback = object : ConnectivityManager.NetworkCallback() {
-                override fun onAvailable(network: Network) {
-                    hostNetwork = network
-                    setTransportStatus("Host Wi-Fi Aware data path available")
-                    appendLog("Host Wi-Fi Aware data path available.")
-                }
+            val callback =
+                object : ConnectivityManager.NetworkCallback() {
+                    override fun onAvailable(network: Network) {
+                        hostNetwork = network
+                        setTransportStatus("Host Wi-Fi Aware data path available")
+                        appendLog("Host Wi-Fi Aware data path available.")
+                    }
 
-                override fun onLost(network: Network) {
-                    if (network == hostNetwork) {
-                        appendLog("Host data path lost.")
-                        setTransportStatus("Host Wi-Fi Aware data path lost")
-                        hostNetwork = null
+                    override fun onLost(network: Network) {
+                        if (network == hostNetwork) {
+                            appendLog("Host data path lost.")
+                            setTransportStatus("Host Wi-Fi Aware data path lost")
+                            hostNetwork = null
+                            clearHostNetworkRequest()
+                            closeHostSockets()
+                        }
+                    }
+
+                    override fun onUnavailable() {
+                        appendLog("Host data path unavailable.")
+                        setTransportStatus("Host Wi-Fi Aware data path unavailable")
                         clearHostNetworkRequest()
                         closeHostSockets()
                     }
                 }
-
-                override fun onUnavailable() {
-                    appendLog("Host data path unavailable.")
-                    setTransportStatus("Host Wi-Fi Aware data path unavailable")
-                    clearHostNetworkRequest()
-                    closeHostSockets()
-                }
-            }
 
             hostNetworkCallback = callback
             connectivityManager.requestNetwork(request, callback)
@@ -614,6 +857,7 @@ class MainActivity : Activity() {
                 hostSocket = socket
                 setTransportStatus("Host Wi-Fi Aware TCP socket connected")
                 appendLog("Host accepted Wi-Fi Aware TCP socket from client.")
+                updateControls()
                 handleHostTransfers(socket)
             } catch (e: IOException) {
                 if (!serverSocket.isClosed && role == Role.HOST) {
@@ -632,20 +876,19 @@ class MainActivity : Activity() {
             var activeSetLabel = "Unknown Set"
 
             while (!socket.isClosed && role == Role.HOST) {
-                val command = try {
-                    input.readUTF()
-                } catch (_: EOFException) {
-                    appendLog("Host audio stream closed by client.")
-                    break
-                }
+                val command =
+                    try {
+                        input.readUTF()
+                    } catch (_: EOFException) {
+                        appendLog("Host audio stream closed by client.")
+                        break
+                    }
 
                 when (command) {
                     commandSet -> {
                         activeSetLabel = input.readUTF()
                         val trackCount = input.readInt()
-                        appendLog(
-                            "Host receiving Wi-Fi Aware audio $activeSetLabel with $trackCount tracks.",
-                        )
+                        appendLog("Host receiving Wi-Fi Aware audio $activeSetLabel with $trackCount tracks.")
                     }
 
                     commandTrack -> {
@@ -696,6 +939,9 @@ class MainActivity : Activity() {
 
                         if (result.success) {
                             receivedTracks = demoStore.receivedTracks()
+                            if (selectedTrackNhash == null) {
+                                selectedTrackNhash = result.track?.nhash
+                            }
                             updateTrackViews()
                         }
 
@@ -711,9 +957,7 @@ class MainActivity : Activity() {
                     commandDone -> {
                         val setLabel = input.readUTF()
                         val trackCount = input.readInt()
-                        appendLog(
-                            "Host finished receiving Wi-Fi Aware audio $setLabel ($trackCount tracks).",
-                        )
+                        appendLog("Host finished receiving Wi-Fi Aware audio $setLabel ($trackCount tracks).")
                     }
 
                     else -> {
@@ -751,52 +995,55 @@ class MainActivity : Activity() {
 
         setTransportStatus("Client requesting Wi-Fi Aware data path")
         appendLog("Client requesting a Wi-Fi Aware data path to ${peerLabel(peerHandle)}")
-        val specifier = WifiAwareNetworkSpecifier.Builder(session, peerHandle)
-            .setPskPassphrase(securePassphrase)
-            .build()
+        val specifier =
+            WifiAwareNetworkSpecifier.Builder(session, peerHandle)
+                .setPskPassphrase(securePassphrase)
+                .build()
 
-        val request = NetworkRequest.Builder()
-            .addTransportType(NetworkCapabilities.TRANSPORT_WIFI_AWARE)
-            .setNetworkSpecifier(specifier)
-            .build()
+        val request =
+            NetworkRequest.Builder()
+                .addTransportType(NetworkCapabilities.TRANSPORT_WIFI_AWARE)
+                .setNetworkSpecifier(specifier)
+                .build()
 
-        val callback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) {
-                clientNetwork = network
-                setTransportStatus("Client Wi-Fi Aware data path available")
-                appendLog("Client Wi-Fi Aware data path available.")
-                maybeConnectClientSocket()
-            }
+        val callback =
+            object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) {
+                    clientNetwork = network
+                    setTransportStatus("Client Wi-Fi Aware data path available")
+                    appendLog("Client Wi-Fi Aware data path available.")
+                    maybeConnectClientSocket()
+                }
 
-            override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
-                val awareInfo = networkCapabilities.transportInfo as? WifiAwareNetworkInfo ?: return
-                clientPeerIpv6 = awareInfo.peerIpv6Addr
-                clientPeerPort = awareInfo.port
-                appendLog(
-                    "Client learned host Wi-Fi Aware endpoint port=${awareInfo.port} ipv6=${awareInfo.peerIpv6Addr?.hostAddress ?: "null"}",
-                )
-                maybeConnectClientSocket()
-            }
+                override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
+                    val awareInfo = networkCapabilities.transportInfo as? WifiAwareNetworkInfo ?: return
+                    clientPeerIpv6 = awareInfo.peerIpv6Addr
+                    clientPeerPort = awareInfo.port
+                    appendLog(
+                        "Client learned host Wi-Fi Aware endpoint port=${awareInfo.port} ipv6=${awareInfo.peerIpv6Addr?.hostAddress ?: "null"}",
+                    )
+                    maybeConnectClientSocket()
+                }
 
-            override fun onLost(network: Network) {
-                if (network == clientNetwork) {
-                    appendLog("Client data path lost.")
-                    setTransportStatus("Client Wi-Fi Aware data path lost")
-                    clientNetwork = null
-                    clientPeerIpv6 = null
-                    clientPeerPort = 0
+                override fun onLost(network: Network) {
+                    if (network == clientNetwork) {
+                        appendLog("Client data path lost.")
+                        setTransportStatus("Client Wi-Fi Aware data path lost")
+                        clientNetwork = null
+                        clientPeerIpv6 = null
+                        clientPeerPort = 0
+                        clearClientNetworkRequest()
+                        closeClientSocket()
+                    }
+                }
+
+                override fun onUnavailable() {
+                    appendLog("Client data path unavailable.")
+                    setTransportStatus("Client Wi-Fi Aware data path unavailable")
                     clearClientNetworkRequest()
                     closeClientSocket()
                 }
             }
-
-            override fun onUnavailable() {
-                appendLog("Client data path unavailable.")
-                setTransportStatus("Client Wi-Fi Aware data path unavailable")
-                clearClientNetworkRequest()
-                closeClientSocket()
-            }
-        }
 
         clientNetworkCallback = callback
         connectivityManager.requestNetwork(request, callback)
@@ -821,8 +1068,9 @@ class MainActivity : Activity() {
                 clientOutput = DataOutputStream(BufferedOutputStream(socket.getOutputStream(), ioBufferSize))
                 clientSocketConnecting = false
                 setTransportStatus("Client Wi-Fi Aware TCP socket connected")
-                appendLog("Client Wi-Fi Aware TCP socket connected. Ready to send the seeded set.")
+                appendLog("Client Wi-Fi Aware TCP socket connected. Ready to share the seeded shelf.")
                 updateControls()
+                maybeStartPendingFetch()
             } catch (e: IOException) {
                 clientSocketConnecting = false
                 appendLog("Client socket connect failed: ${e.message}")
@@ -832,9 +1080,48 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun sendSeededSet() {
+    private fun requestFetchFromPeer() {
+        if (role != Role.HOST) {
+            appendLog("Fetch From Peer is only available on the host phone.")
+            return
+        }
+
+        val peerHandle = activePeerHandle
+        if (peerHandle == null) {
+            appendLog("No Wi-Fi Aware peer discovered yet.")
+            return
+        }
+
+        if (hostSocket == null) {
+            appendLog("Wait for the host TCP socket before requesting a fetch.")
+            return
+        }
+
+        sendMessage(
+            session = publishSession,
+            peerHandle = peerHandle,
+            payload = "$fetchMessagePrefix$appInstance",
+            reason = "host requested seeded set",
+        )
+        appendLog("Host requested the client's seeded shelf.")
+    }
+
+    private fun maybeStartPendingFetch() {
+        if (
+            role == Role.CLIENT &&
+            pendingRemoteFetchRequest &&
+            clientSocket != null &&
+            !clientSocketConnecting &&
+            !transferInFlight
+        ) {
+            pendingRemoteFetchRequest = false
+            sendSeededSet("host fetch request")
+        }
+    }
+
+    private fun sendSeededSet(trigger: String) {
         if (role != Role.CLIENT) {
-            appendLog("Only the client sends the seeded set in this increment.")
+            appendLog("Only the client shares the seeded set in this increment.")
             return
         }
 
@@ -863,9 +1150,7 @@ class MainActivity : Activity() {
 
         ioExecutor.execute {
             try {
-                appendLog(
-                    "Client sending Wi-Fi Aware audio $setLabel with ${localTracks.size} tracks.",
-                )
+                appendLog("Client sending Wi-Fi Aware audio $setLabel with ${localTracks.size} tracks ($trigger).")
                 output.writeUTF(commandSet)
                 output.writeUTF(setLabel)
                 output.writeInt(localTracks.size)
@@ -946,6 +1231,7 @@ class MainActivity : Activity() {
     private fun stopAll(reason: String) {
         pendingRole = null
         transferInFlight = false
+        pendingRemoteFetchRequest = false
 
         clearClientNetworkRequest()
         clearHostNetworkRequest()
@@ -1023,7 +1309,7 @@ class MainActivity : Activity() {
 
     private fun setStatus(status: String) {
         onMain {
-            statusView.text = "Status: $status"
+            statusView.text = "STATUS  $status"
         }
     }
 
@@ -1034,36 +1320,54 @@ class MainActivity : Activity() {
 
     private fun updateRoleView() {
         onMain {
-            roleView.text = "Role: ${roleLabel(role)}"
+            roleView.text = "ROLE  ${roleLabel(role)}"
         }
     }
 
     private fun updateTransportView() {
         onMain {
-            transportView.text = "Transport: $transportStatus"
+            transportView.text = "LINK  $transportStatus"
         }
     }
 
     private fun updateTrackViews() {
         onMain {
+            val filteredLocal = filteredTracks(localTracks)
+            val filteredReceived = filteredTracks(receivedTracks)
+            val activeTrack = selectedDisplayTrack(filteredLocal, filteredReceived)
+
             val localSetLabel = localTracks.firstOrNull()?.setLabel ?: "none"
-            localSummaryView.text = "Local set: $localSetLabel (${localTracks.size} tracks)"
-            receivedSummaryView.text = "Received tracks: ${receivedTracks.size}"
-            storageView.text = "Demo storage: ${formatByteCount(demoStore.totalStorageBytes())}"
+            localSummaryView.text = "Local shelf: $localSetLabel  ·  ${localTracks.size} tracks"
+            localSummaryView.setTextColor(parseColor("#d7def0"))
+            localSummaryView.textSize = 14f
+            receivedSummaryView.text = "Nearby shelf: ${receivedTracks.size} fetched  ·  ${formatByteCount(demoStore.totalStorageBytes())}"
+            receivedSummaryView.setTextColor(parseColor("#d7def0"))
+            receivedSummaryView.textSize = 14f
+            storageView.text = "STORAGE  ${formatByteCount(demoStore.totalStorageBytes())}"
 
-            localTracksView.text =
-                if (localTracks.isEmpty()) {
-                    "Local tracks:\nnone"
+            bindHero(activeTrack)
+            renderTrackSection(
+                container = localTracksContainer,
+                emptyView = localEmptyView,
+                tracks = filteredLocal,
+                emptyMessage = if (localTracks.isEmpty()) {
+                    "No seeded shelf yet. Use Seed Set A or Seed Set B to create local audio."
                 } else {
-                    "Local tracks:\n" + formatTrackList(localTracks)
-                }
-
-            receivedTracksView.text =
-                if (receivedTracks.isEmpty()) {
-                    "Received tracks:\nnone"
+                    "No local tracks match \"$searchQuery\"."
+                },
+                sourceLabel = "Local",
+            )
+            renderTrackSection(
+                container = receivedTracksContainer,
+                emptyView = receivedEmptyView,
+                tracks = filteredReceived,
+                emptyMessage = if (receivedTracks.isEmpty()) {
+                    "Nothing fetched yet. Start Host and tap Fetch From Peer after the Wi-Fi Aware socket connects."
                 } else {
-                    "Received tracks:\n" + formatTrackList(receivedTracks)
-                }
+                    "No fetched tracks match \"$searchQuery\"."
+                },
+                sourceLabel = "Nearby",
+            )
         }
     }
 
@@ -1075,12 +1379,18 @@ class MainActivity : Activity() {
             hostButton.isEnabled = role == Role.IDLE
             clientButton.isEnabled = role == Role.IDLE
             stopButton.isEnabled = role != Role.IDLE
-            sendSetButton.isEnabled =
+            shareNowButton.isEnabled =
                 role == Role.CLIENT &&
                 clientSocket != null &&
                 !clientSocketConnecting &&
                 !transferInFlight &&
                 localTracks.isNotEmpty()
+            fetchPeerButton.isEnabled =
+                role == Role.HOST &&
+                hostSocket != null &&
+                activePeerHandle != null &&
+                !transferInFlight
+            heroActionButton.isEnabled = selectedDisplayTrack() != null
         }
     }
 
@@ -1089,10 +1399,262 @@ class MainActivity : Activity() {
         receivedTracks = demoStore.receivedTracks()
     }
 
-    private fun formatTrackList(tracks: List<AudioTrackInfo>): String {
-        return tracks.joinToString("\n") { track ->
-            "${track.id} · ${track.title} · ${track.nhash.takeLast(10)}"
+    private fun filteredTracks(tracks: List<AudioTrackInfo>): List<AudioTrackInfo> {
+        val trimmed = searchQuery.trim()
+        if (trimmed.isEmpty()) {
+            return tracks.sortedBy { it.title.lowercase(Locale.US) }
         }
+        val needle = trimmed.lowercase(Locale.US)
+        return tracks.filter { track ->
+            track.title.lowercase(Locale.US).contains(needle) ||
+                track.artist.lowercase(Locale.US).contains(needle) ||
+                track.album.lowercase(Locale.US).contains(needle)
+        }.sortedBy { it.title.lowercase(Locale.US) }
+    }
+
+    private fun selectedDisplayTrack(
+        filteredLocal: List<AudioTrackInfo> = filteredTracks(localTracks),
+        filteredReceived: List<AudioTrackInfo> = filteredTracks(receivedTracks),
+    ): AudioTrackInfo? {
+        val candidates = filteredLocal + filteredReceived
+        val selected = selectedTrackNhash?.let { nhash -> candidates.firstOrNull { it.nhash == nhash } }
+        if (selected != null) {
+            return selected
+        }
+        val fallback = candidates.firstOrNull()
+        selectedTrackNhash = fallback?.nhash
+        return fallback
+    }
+
+    private fun bindHero(track: AudioTrackInfo?) {
+        if (track == null) {
+            heroArtView.text = "--"
+            heroArtView.background = roundedFill(parseColor("#111827"), parseColor("#24324a"))
+            heroEyebrowView.text = "Seed a shelf or fetch nearby"
+            heroTitleView.text = "No active track"
+            heroMetaView.text = "This screen turns into a player as soon as you have local or fetched audio."
+            heroDetailView.text = "Wi-Fi Aware host fetches. Wi-Fi Aware client carries the seeded set."
+            heroActionButton.text = "Play"
+            heroActionButton.isEnabled = false
+            return
+        }
+
+        val spec = AudioDemoCatalog.specForId(track.id)
+        heroArtView.text = spec?.coverSeed ?: track.id.take(2).uppercase(Locale.US)
+        heroArtView.background =
+            GradientDrawable(
+                GradientDrawable.Orientation.BL_TR,
+                intArrayOf(
+                    parseColor(spec?.accentHex ?: "#334155"),
+                    parseColor(spec?.secondaryAccentHex ?: "#64748b"),
+                ),
+            ).apply {
+                cornerRadius = dp(28).toFloat()
+            }
+        heroEyebrowView.text =
+            if (receivedTracks.any { it.nhash == track.nhash }) {
+                "Fetched via Wi-Fi Aware"
+            } else {
+                "Seeded on this phone"
+            }
+        heroTitleView.text = track.title
+        heroMetaView.text = "${track.artist}  ·  ${track.album}"
+        heroDetailView.text =
+            buildString {
+                append(spec?.genre ?: "Audio demo")
+                append("  ·  ")
+                append(track.setLabel)
+                append("  ·  ")
+                append(track.nhash.takeLast(10))
+            }
+        heroActionButton.text =
+            if (playingTrackNhash == track.nhash) {
+                "Stop Playback"
+            } else {
+                "Play Track"
+            }
+        heroActionButton.isEnabled = true
+    }
+
+    private fun renderTrackSection(
+        container: LinearLayout,
+        emptyView: TextView,
+        tracks: List<AudioTrackInfo>,
+        emptyMessage: String,
+        sourceLabel: String,
+    ) {
+        container.removeAllViews()
+        if (tracks.isEmpty()) {
+            emptyView.visibility = View.VISIBLE
+            emptyView.text = emptyMessage
+            return
+        }
+
+        emptyView.visibility = View.GONE
+        tracks.forEachIndexed { index, track ->
+            container.addView(createTrackRow(track, sourceLabel))
+            if (index != tracks.lastIndex) {
+                container.addView(spacer(dp(10)))
+            }
+        }
+    }
+
+    private fun createTrackRow(
+        track: AudioTrackInfo,
+        sourceLabel: String,
+    ): View {
+        val spec = AudioDemoCatalog.specForId(track.id)
+        val accent = parseColor(spec?.accentHex ?: "#334155")
+        val secondary = parseColor(spec?.secondaryAccentHex ?: "#64748b")
+        val isSelected = selectedTrackNhash == track.nhash
+        val isPlaying = playingTrackNhash == track.nhash
+
+        val row =
+            LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                background =
+                    GradientDrawable(
+                        GradientDrawable.Orientation.LEFT_RIGHT,
+                        intArrayOf(
+                            adjustAlpha(accent, if (isSelected) 0.26f else 0.16f),
+                            adjustAlpha(secondary, if (isSelected) 0.16f else 0.08f),
+                        ),
+                    ).apply {
+                        cornerRadius = dp(22).toFloat()
+                        setStroke(dp(if (isSelected) 2 else 1), adjustAlpha(secondary, 0.55f))
+                    }
+                setPadding(dp(14), dp(14), dp(14), dp(14))
+                setOnClickListener {
+                    selectedTrackNhash = track.nhash
+                    updateTrackViews()
+                }
+            }
+
+        row.addView(
+            TextView(this).apply {
+                text = spec?.coverSeed ?: track.id.take(2).uppercase(Locale.US)
+                gravity = Gravity.CENTER
+                setTextColor(Color.WHITE)
+                textSize = 16f
+                setTypeface(Typeface.MONOSPACE, Typeface.BOLD)
+                background =
+                    GradientDrawable(
+                        GradientDrawable.Orientation.BL_TR,
+                        intArrayOf(accent, secondary),
+                    ).apply {
+                        cornerRadius = dp(18).toFloat()
+                    }
+                layoutParams = LinearLayout.LayoutParams(dp(60), dp(60))
+            },
+        )
+
+        row.addView(
+            LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(14), 0, dp(14), 0)
+                layoutParams =
+                    LinearLayout.LayoutParams(
+                        0,
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        1f,
+                    )
+                addView(
+                    TextView(this@MainActivity).apply {
+                        text = track.title
+                        textSize = 17f
+                        setTextColor(Color.WHITE)
+                        setTypeface(Typeface.SANS_SERIF, Typeface.BOLD)
+                    },
+                )
+                addView(
+                    TextView(this@MainActivity).apply {
+                        text = "${track.artist}  ·  ${track.album}"
+                        textSize = 13f
+                        setTextColor(parseColor("#d7def0"))
+                        setPadding(0, dp(4), 0, 0)
+                    },
+                )
+                addView(
+                    TextView(this@MainActivity).apply {
+                        text = "$sourceLabel  ·  ${track.setLabel}  ·  ${track.nhash.takeLast(10)}"
+                        textSize = 11f
+                        setTextColor(parseColor("#9fb2ce"))
+                        setTypeface(Typeface.MONOSPACE)
+                        setPadding(0, dp(6), 0, 0)
+                    },
+                )
+            },
+        )
+
+        row.addView(
+            buildAccentButton(
+                if (isPlaying) {
+                    "Stop"
+                } else {
+                    "Play"
+                },
+                spec?.accentHex ?: "#334155",
+                spec?.secondaryAccentHex ?: "#64748b",
+            ).apply {
+                layoutParams = LinearLayout.LayoutParams(dp(92), ViewGroup.LayoutParams.WRAP_CONTENT)
+                setOnClickListener {
+                    selectedTrackNhash = track.nhash
+                    togglePlayback(track)
+                }
+            },
+        )
+
+        return row
+    }
+
+    private fun togglePlayback(track: AudioTrackInfo) {
+        if (playingTrackNhash == track.nhash) {
+            stopPlayback("Stopped playback for ${track.title}.")
+            return
+        }
+
+        try {
+            releasePlayer()
+            val player =
+                MediaPlayer().apply {
+                    setDataSource(track.file.absolutePath)
+                    setOnCompletionListener {
+                        releasePlayer()
+                        appendLog("Playback finished for ${track.title}.")
+                        updateTrackViews()
+                    }
+                    prepare()
+                    start()
+                }
+            mediaPlayer = player
+            playingTrackNhash = track.nhash
+            selectedTrackNhash = track.nhash
+            appendLog("Playing ${track.title} from ${track.file.absolutePath}.")
+            updateTrackViews()
+        } catch (e: Exception) {
+            releasePlayer()
+            appendLog("Playback failed for ${track.title}: ${e.message}")
+            updateTrackViews()
+        }
+    }
+
+    private fun stopPlayback(logMessage: String? = null) {
+        try {
+            mediaPlayer?.stop()
+        } catch (_: Exception) {
+        }
+        releasePlayer()
+        if (logMessage != null) {
+            appendLog(logMessage)
+        }
+        updateTrackViews()
+    }
+
+    private fun releasePlayer() {
+        mediaPlayer?.release()
+        mediaPlayer = null
+        playingTrackNhash = null
     }
 
     private fun appendLog(message: String) {
@@ -1140,5 +1702,169 @@ class MainActivity : Activity() {
             bytes >= 1_000L -> String.format(Locale.US, "%.2f KB", bytes / 1_000.0)
             else -> "$bytes B"
         }
+    }
+
+    private fun buildStatPill(): TextView {
+        return TextView(this).apply {
+            setTextColor(Color.WHITE)
+            textSize = 12f
+            setTypeface(Typeface.MONOSPACE, Typeface.BOLD)
+            background = roundedFill(parseColor("#111827"), parseColor("#233047"))
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+        }
+    }
+
+    private fun cardContainer(
+        colors: IntArray = intArrayOf(parseColor("#121929"), parseColor("#0d1321")),
+        strokeColor: Int = parseColor("#233047"),
+    ): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background =
+                GradientDrawable(
+                    GradientDrawable.Orientation.TOP_BOTTOM,
+                    colors,
+                ).apply {
+                    cornerRadius = dp(30).toFloat()
+                    setStroke(dp(1), strokeColor)
+                }
+            setPadding(dp(18), dp(18), dp(18), dp(18))
+        }
+    }
+
+    private fun sectionTitle(text: String): TextView {
+        return TextView(this).apply {
+            this.text = text
+            textSize = 20f
+            setTextColor(Color.WHITE)
+            setTypeface(Typeface.SANS_SERIF, Typeface.BOLD)
+        }
+    }
+
+    private fun buildAccentButton(
+        text: String,
+        startHex: String,
+        endHex: String,
+    ): Button {
+        return Button(this).apply {
+            this.text = text
+            isAllCaps = false
+            setTextColor(Color.WHITE)
+            setTypeface(Typeface.SANS_SERIF, Typeface.BOLD)
+            textSize = 14f
+            background =
+                GradientDrawable(
+                    GradientDrawable.Orientation.LEFT_RIGHT,
+                    intArrayOf(parseColor(startHex), parseColor(endHex)),
+                ).apply {
+                    cornerRadius = dp(20).toFloat()
+                }
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+        }
+    }
+
+    private fun buildMutedButton(text: String): Button {
+        return Button(this).apply {
+            this.text = text
+            isAllCaps = false
+            setTextColor(Color.WHITE)
+            setTypeface(Typeface.SANS_SERIF, Typeface.BOLD)
+            textSize = 14f
+            background = roundedFill(parseColor("#192235"), parseColor("#31435e"))
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+        }
+    }
+
+    private fun buildGhostButton(text: String): Button {
+        return Button(this).apply {
+            this.text = text
+            isAllCaps = false
+            setTextColor(parseColor("#d7def0"))
+            setTypeface(Typeface.MONOSPACE, Typeface.BOLD)
+            textSize = 13f
+            background = roundedFill(adjustAlpha(parseColor("#0b1220"), 0.8f), parseColor("#233047"))
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+        }
+    }
+
+    private fun buildEmptyText(): TextView {
+        return TextView(this).apply {
+            textSize = 13f
+            setTextColor(parseColor("#9fb2ce"))
+            setPadding(0, dp(4), 0, 0)
+        }
+    }
+
+    private fun buttonRow(vararg buttons: Button): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.START
+            buttons.forEachIndexed { index, button ->
+                val params =
+                    LinearLayout.LayoutParams(
+                        0,
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        1f,
+                    )
+                if (index > 0) {
+                    params.marginStart = dp(10)
+                }
+                addView(button, params)
+            }
+        }
+    }
+
+    private fun statRow(
+        left: TextView,
+        right: TextView,
+    ): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(
+                left,
+                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    marginEnd = dp(6)
+                },
+            )
+            addView(
+                right,
+                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    marginStart = dp(6)
+                },
+            )
+        }
+    }
+
+    private fun roundedFill(
+        fillColor: Int,
+        strokeColor: Int,
+    ): GradientDrawable {
+        return GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(20).toFloat()
+            setColor(fillColor)
+            setStroke(dp(1), strokeColor)
+        }
+    }
+
+    private fun spacer(height: Int): View {
+        return View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                height,
+            )
+        }
+    }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).roundToInt()
+
+    private fun parseColor(value: String): Int = Color.parseColor(value)
+
+    private fun adjustAlpha(
+        color: Int,
+        factor: Float,
+    ): Int {
+        val alpha = (Color.alpha(color) * factor).roundToInt().coerceIn(0, 255)
+        return Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color))
     }
 }

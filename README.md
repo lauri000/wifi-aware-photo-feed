@@ -4,16 +4,16 @@
 
 ## Current Prototype
 
-The codebase currently contains increment 2 of the nearby hashtree demo: a very small Android app that seeds one of two deterministic audio sets locally, computes a real hashtree `nhash` for each generated WAV file, and sends the seeded set from a `Client` phone to a `Host` phone over a Wi-Fi Aware data path.
+The codebase currently contains an audio-first version of increment 2 of the nearby hashtree demo: a small Android app with a crude music-library UI, local playback, search, explicit `Seed Set A` / `Seed Set B` controls, and a `Fetch From Peer` action on the `Host` phone. Each generated WAV still gets a real hashtree `nhash`, and every fetched file is re-verified after it crosses the Wi-Fi Aware data path.
 
 Use it like this:
 
 1. Open the app on both phones.
 2. Tap `Seed Set A` on one phone, or `Seed Set B` on the other.
 3. Tap `Start Host` on the receiving phone.
-4. Tap `Start Client` on the sending phone.
-5. Wait for the client log to say the Wi-Fi Aware TCP socket is connected.
-6. Tap `Send Seeded Set` on the client.
+4. Tap `Start Client` on the phone carrying the seeded shelf.
+5. Wait for the logs to show that the Wi-Fi Aware TCP socket is connected.
+6. Tap `Fetch From Peer` on the host.
 7. Verify that both phones log the same per-track `nhash` values, and that the host logs receiver-side verification plus storage.
 
 The crude split-increment plan is documented in [docs/nearby-hashtree-increments.md](/Users/l/Projects/iris/nostr-wifi-aware/docs/nearby-hashtree-increments.md).
@@ -92,7 +92,7 @@ scripts/stay-awake.sh status
 
 - The app package is `com.lauri000.nostrwifiaware`.
 - The app writes its event log both to the screen and to logcat under the tag `NostrWifiAware`.
-- Increment 2 proves one thing: deterministic seeded audio files with real hashtree `nhash` values can be transferred and verified over a Wi-Fi Aware data path.
+- Increment 2 proves one thing: deterministic seeded audio files with real hashtree `nhash` values can be fetched over a Wi-Fi Aware data path and verified on the receiving phone.
 - For Wi-Fi Aware to work, keep the app open on both phones.
 - Wi-Fi should be on.
 - Location services should be on.
@@ -100,7 +100,7 @@ scripts/stay-awake.sh status
 
 ### Current State On This Machine
 
-As of April 2, 2026, the current increment built successfully and was verified on two USB-connected Pixel 9a devices. Set B was seeded and transferred from one phone to the other over a Wi-Fi Aware data path, and then Set A was sent back in the reverse direction with receiver-side `nhash` verification on both runs.
+As of April 2, 2026, the current increment built successfully and was verified on two USB-connected Pixel 9a devices. The redesigned UI shipped and the new host-side `Fetch From Peer` flow was verified end to end: one phone seeded Set B, the other seeded Set A, the host requested a fetch over the Wi-Fi Aware discovery channel, and the client sent its seeded shelf over the Wi-Fi Aware data path with receiver-side `nhash` verification on every received file.
 
 ## MVP Summary
 
