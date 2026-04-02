@@ -4,17 +4,17 @@
 
 ## Current Prototype
 
-The codebase currently contains an audio-first version of increment 2 of the nearby hashtree demo: a small Android app with a crude music-library UI, local playback, search, explicit `Seed Set A` / `Seed Set B` controls, and a `Fetch From Peer` action on the `Host` phone. Each generated WAV still gets a real hashtree `nhash`, and every fetched file is re-verified after it crosses the Wi-Fi Aware data path.
+The codebase currently contains an audio-first peer-mode version of the nearby hashtree demo: a small Android app with a crude music-library UI, local playback, search, explicit `Seed Set A` / `Seed Set B` controls, and `Start Nearby` / `Fetch From Peer` actions on both phones. Each generated WAV still gets a real hashtree `nhash`, and every fetched file is re-verified after it crosses the Wi-Fi Aware data path.
 
 Use it like this:
 
 1. Open the app on both phones.
 2. On the phone that will act as the sender, tap `Seed Set A`, then optionally tap `Seed Set B` as well. The second seed adds tracks instead of replacing the first, so one phone can carry all 4 demo songs.
-3. Tap `Start Host` on the receiving phone.
-4. Tap `Start Client` on the phone carrying the seeded shelf.
-5. Wait for the logs to show that the Wi-Fi Aware TCP socket is connected.
-6. Tap `Fetch From Peer` on the host.
-7. Verify that both phones log the same per-track `nhash` values, and that the host logs receiver-side verification plus storage.
+3. Tap `Start Nearby` on both phones.
+4. Wait for the logs to show that the Wi-Fi Aware peer socket is connected. The app will decide internally which phone initiates the data path.
+5. Tap `Fetch From Peer` on the empty phone.
+6. Verify that both phones log the same per-track `nhash` values, and that the receiving phone logs receiver-side verification plus storage.
+7. Optionally tap `Share Available Shelf` on either phone to push whatever that phone has already seeded or fetched.
 
 The crude split-increment plan is documented in [docs/nearby-hashtree-increments.md](/Users/l/Projects/iris/nostr-wifi-aware/docs/nearby-hashtree-increments.md).
 The earlier fuller nearby sync plan is still documented in [docs/nearby-hashtree-demo-plan.md](/Users/l/Projects/iris/nostr-wifi-aware/docs/nearby-hashtree-demo-plan.md).
@@ -92,7 +92,7 @@ scripts/stay-awake.sh status
 
 - The app package is `com.lauri000.nostrwifiaware`.
 - The app writes its event log both to the screen and to logcat under the tag `NostrWifiAware`.
-- Increment 2 proves one thing: deterministic seeded audio files with real hashtree `nhash` values can be fetched over a Wi-Fi Aware data path and verified on the receiving phone.
+- The current peer-mode increment proves one thing: deterministic seeded audio files with real hashtree `nhash` values can be fetched over a Wi-Fi Aware data path and verified on the receiving phone without manual host/client role selection.
 - For Wi-Fi Aware to work, keep the app open on both phones.
 - Wi-Fi should be on.
 - Location services should be on.
@@ -100,7 +100,7 @@ scripts/stay-awake.sh status
 
 ### Current State On This Machine
 
-As of April 2, 2026, the current increment built successfully and was verified on two USB-connected Pixel 9a devices. The redesigned UI shipped and the new host-side `Fetch From Peer` flow was verified end to end: one phone seeded Set B, the other seeded Set A, the host requested a fetch over the Wi-Fi Aware discovery channel, and the client sent its seeded shelf over the Wi-Fi Aware data path with receiver-side `nhash` verification on every received file.
+As of April 2, 2026, the current increment built successfully and was verified on two USB-connected Pixel 9a devices. The peer-mode UI shipped and the new `Start Nearby` flow was verified end to end: one phone carried all 4 demo songs, the other phone was empty, both tapped `Start Nearby`, the app chose the initiator automatically, and the empty phone fetched the full shelf over the Wi-Fi Aware data path with receiver-side `nhash` verification on every received file.
 
 ## MVP Summary
 

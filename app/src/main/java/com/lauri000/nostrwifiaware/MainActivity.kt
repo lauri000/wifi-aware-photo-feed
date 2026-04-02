@@ -54,15 +54,29 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit
 import kotlin.math.min
 import kotlin.math.roundToInt
 
 class MainActivity : Activity() {
     private enum class Role {
         IDLE,
-        HOST,
-        CLIENT,
+        PEER,
     }
+
+    private enum class DataPathRole {
+        NONE,
+        RESPONDER,
+        INITIATOR,
+    }
+
+    private data class TrackAck(
+        val success: Boolean,
+        val actualNhash: String?,
+        val alreadyPresent: Boolean,
+        val message: String,
+    )
 
     companion object {
         private const val serviceName = "nostr-wifi-aware"
@@ -109,8 +123,7 @@ class MainActivity : Activity() {
     private lateinit var logView: TextView
     private lateinit var seedSetAButton: Button
     private lateinit var seedSetBButton: Button
-    private lateinit var hostButton: Button
-    private lateinit var clientButton: Button
+    private lateinit var startNearbyButton: Button
     private lateinit var fetchPeerButton: Button
     private lateinit var shareNowButton: Button
     private lateinit var clearDataButton: Button
@@ -119,6 +132,7 @@ class MainActivity : Activity() {
 
     private var role = Role.IDLE
     private var pendingRole: Role? = null
+    private var dataPathRole = DataPathRole.NONE
     private var transportStatus = "Idle"
     private var searchQuery = ""
     private var selectedTrackNhash: String? = null
@@ -133,7 +147,10 @@ class MainActivity : Activity() {
     private var publishSession: PublishDiscoverySession? = null
     private var subscribeSession: SubscribeDiscoverySession? = null
     private var nextMessageId = 1
-    private var activePeerHandle: PeerHandle? = null
+    private var publishPeerHandle: PeerHandle? = null
+    private var subscribePeerHandle: PeerHandle? = null
+    private var remotePeerInstance: String? = null
+    private var helloSent = false
 
     private var hostNetwork: Network? = null
     private var clientNetwork: Network? = null
@@ -144,10 +161,13 @@ class MainActivity : Activity() {
     private var hostSocket: Socket? = null
 
     private var clientSocket: Socket? = null
-    private var clientInput: DataInputStream? = null
-    private var clientOutput: DataOutputStream? = null
+    private var connectedSocket: Socket? = null
+    private var connectedInput: DataInputStream? = null
+    private var connectedOutput: DataOutputStream? = null
     private var clientPeerIpv6: Inet6Address? = null
     private var clientPeerPort = 0
+    private val pendingTrackAcks = LinkedBlockingQueue<TrackAck>()
+    private val socketWriteLock = Any()
 
     @Volatile
     private var clientSocketConnecting = false
@@ -275,11 +295,8 @@ class MainActivity : Activity() {
         seedSetBButton = buildAccentButton("Seed Set B", "#ec4899", "#8b5cf6").apply {
             setOnClickListener { seedAudioSet(AudioSetId.SET_B) }
         }
-        hostButton = buildMutedButton("Start Host").apply {
-            setOnClickListener { ensurePermissionsAndStart(Role.HOST) }
-        }
-        clientButton = buildMutedButton("Start Client").apply {
-            setOnClickListener { ensurePermissionsAndStart(Role.CLIENT) }
+        startNearbyButton = buildMutedButton("Start Nearby").apply {
+            setOnClickListener { ensurePermissionsAndStart(Role.PEER) }
         }
         stopButton = buildMutedButton("Stop").apply {
             setOnClickListener { stopAll("Stopped manually") }
@@ -287,7 +304,7 @@ class MainActivity : Activity() {
         fetchPeerButton = buildAccentButton("Fetch From Peer", "#38bdf8", "#06b6d4").apply {
             setOnClickListener { requestFetchFromPeer() }
         }
-        shareNowButton = buildMutedButton("Share Seeded Set").apply {
+        shareNowButton = buildMutedButton("Share Available Shelf").apply {
             setOnClickListener { sendSeededSet("manual share") }
         }
         clearDataButton = buildMutedButton("Clear Demo Data").apply {
@@ -400,7 +417,7 @@ class MainActivity : Activity() {
                 addView(
                     TextView(this@MainActivity).apply {
                         text =
-                            "Seed one or both sets on the sender phone. The second seed adds tracks to the same local shelf, so you can build a full 4-track shelf before fetching it onto an empty receiver."
+                            "Seed one or both sets on either phone, then tap Start Nearby on both. The app picks who initiates the Wi-Fi Aware data path underneath, so you can fetch or share without choosing host/client roles."
                         textSize = 13f
                         setTextColor(parseColor("#9fb2ce"))
                         setPadding(0, dp(6), 0, dp(14))
@@ -410,7 +427,7 @@ class MainActivity : Activity() {
                 addView(receivedSummaryView.apply { setPadding(0, dp(6), 0, dp(14)) })
                 addView(buttonRow(seedSetAButton, seedSetBButton))
                 addView(spacer(dp(10)))
-                addView(buttonRow(hostButton, clientButton, stopButton))
+                addView(buttonRow(startNearbyButton, stopButton))
                 addView(spacer(dp(10)))
                 addView(buttonRow(fetchPeerButton, shareNowButton))
                 addView(spacer(dp(10)))
@@ -443,7 +460,7 @@ class MainActivity : Activity() {
                 addView(sectionTitle("Seeded On This Phone"))
                 addView(
                     TextView(this@MainActivity).apply {
-                        text = "The client shares this shelf over Wi-Fi Aware."
+                        text = "This phone can share anything it has seeded or already fetched from another nearby peer."
                         textSize = 13f
                         setTextColor(parseColor("#9fb2ce"))
                         setPadding(0, dp(6), 0, dp(12))
@@ -568,7 +585,7 @@ class MainActivity : Activity() {
 
         if (Build.VERSION.SDK_INT < 29) {
             setStatus("Unsupported OS")
-            appendLog("This demo requires Android 10+ because the client needs Wi-Fi Aware port metadata.")
+            appendLog("This demo requires Android 10+ because the peer data path needs Wi-Fi Aware port metadata.")
             return
         }
 
@@ -615,8 +632,13 @@ class MainActivity : Activity() {
         pendingRole = null
         pendingRemoteFetchRequest = false
         role = selectedRole
+        dataPathRole = DataPathRole.NONE
         nextMessageId = 1
-        activePeerHandle = null
+        publishPeerHandle = null
+        subscribePeerHandle = null
+        remotePeerInstance = null
+        helloSent = false
+        pendingTrackAcks.clear()
         transferInFlight = false
         updateRoleView()
         updateControls()
@@ -636,8 +658,10 @@ class MainActivity : Activity() {
                     setStatus("Running")
                     appendLog("Attach succeeded.")
                     when (role) {
-                        Role.HOST -> startPublishHost(session)
-                        Role.CLIENT -> startSubscribeClient(session)
+                        Role.PEER -> {
+                            startPublishPeer(session)
+                            startSubscribePeer(session)
+                        }
                         Role.IDLE -> session.close()
                     }
                 }
@@ -655,11 +679,11 @@ class MainActivity : Activity() {
         )
     }
 
-    private fun startPublishHost(session: WifiAwareSession) {
+    private fun startPublishPeer(session: WifiAwareSession) {
         val config =
             PublishConfig.Builder()
                 .setServiceName(serviceName)
-                .setServiceSpecificInfo("host:$appInstance".toByteArray())
+                .setServiceSpecificInfo("peer:$appInstance".toByteArray())
                 .build()
 
         session.publish(
@@ -667,42 +691,48 @@ class MainActivity : Activity() {
             object : DiscoverySessionCallback() {
                 override fun onPublishStarted(session: PublishDiscoverySession) {
                     publishSession = session
-                    setTransportStatus("Host publish started")
-                    appendLog("Host publish started. Waiting for a client hello.")
+                    setTransportStatus("Nearby publish started")
+                    appendLog("Nearby publish started. Waiting for a peer hello if this phone becomes the responder.")
                 }
 
                 override fun onSessionConfigFailed() {
-                    setTransportStatus("Host publish config failed")
-                    appendLog("Host publish config failed.")
+                    setTransportStatus("Nearby publish config failed")
+                    appendLog("Nearby publish config failed.")
                 }
 
                 override fun onSessionTerminated() {
                     publishSession = null
-                    setTransportStatus("Host publish terminated")
-                    appendLog("Host publish session terminated.")
+                    setTransportStatus("Nearby publish terminated")
+                    appendLog("Nearby publish session terminated.")
                 }
 
                 override fun onMessageReceived(peerHandle: PeerHandle, message: ByteArray) {
                     val text = message.toString(Charsets.UTF_8)
-                    appendLog("Host received '$text' from ${peerLabel(peerHandle)}")
+                    appendLog("Nearby publish received '$text' from ${peerLabel(peerHandle)}")
                     if (text.startsWith("hello:")) {
-                        handleHostHello(peerHandle)
+                        handleResponderHello(peerHandle, text.removePrefix("hello:"))
+                    }
+                    if (text.startsWith(fetchMessagePrefix)) {
+                        rememberPeer(peerHandle, remotePeerInstance, isPublishHandle = true)
+                        pendingRemoteFetchRequest = true
+                        appendLog("Nearby peer requested this phone's seeded shelf.")
+                        maybeStartPendingFetch()
                     }
                 }
 
                 override fun onMessageSendSucceeded(messageId: Int) {
-                    appendLog("Host sent message #$messageId")
+                    appendLog("Nearby publish sent message #$messageId")
                 }
 
                 override fun onMessageSendFailed(messageId: Int) {
-                    appendLog("Host failed to send message #$messageId")
+                    appendLog("Nearby publish failed to send message #$messageId")
                 }
             },
             mainHandler,
         )
     }
 
-    private fun startSubscribeClient(session: WifiAwareSession) {
+    private fun startSubscribePeer(session: WifiAwareSession) {
         val config =
             SubscribeConfig.Builder()
                 .setServiceName(serviceName)
@@ -713,19 +743,19 @@ class MainActivity : Activity() {
             object : DiscoverySessionCallback() {
                 override fun onSubscribeStarted(session: SubscribeDiscoverySession) {
                     subscribeSession = session
-                    setTransportStatus("Client subscribe started")
-                    appendLog("Client subscribe started. Looking for a host.")
+                    setTransportStatus("Nearby subscribe started")
+                    appendLog("Nearby subscribe started. Looking for a peer.")
                 }
 
                 override fun onSessionConfigFailed() {
-                    setTransportStatus("Client subscribe config failed")
-                    appendLog("Client subscribe config failed.")
+                    setTransportStatus("Nearby subscribe config failed")
+                    appendLog("Nearby subscribe config failed.")
                 }
 
                 override fun onSessionTerminated() {
                     subscribeSession = null
-                    setTransportStatus("Client subscribe terminated")
-                    appendLog("Client subscribe session terminated.")
+                    setTransportStatus("Nearby subscribe terminated")
+                    appendLog("Nearby subscribe session terminated.")
                 }
 
                 override fun onServiceDiscovered(
@@ -733,59 +763,125 @@ class MainActivity : Activity() {
                     serviceSpecificInfo: ByteArray,
                     matchFilter: List<ByteArray>,
                 ) {
-                    if (activePeerHandle != null) {
+                    val discoveredInstance = parseDiscoveredPeerInstance(serviceSpecificInfo)
+                    if (!rememberPeer(peerHandle, discoveredInstance, isPublishHandle = false)) {
                         return
                     }
 
-                    activePeerHandle = peerHandle
-                    setTransportStatus("Client discovered host")
-                    appendLog("Client discovered host ${peerLabel(peerHandle)}")
-                    sendMessage(
-                        session = subscribeSession,
-                        peerHandle = peerHandle,
-                        payload = "hello:$appInstance",
-                        reason = "client hello",
-                    )
+                    if (discoveredInstance == null) {
+                        appendLog("Discovered ${peerLabel(peerHandle)}, but it did not advertise an app instance. Waiting for an incoming hello.")
+                        return
+                    }
+
+                    setTransportStatus("Nearby peer discovered")
+                    appendLog("Discovered nearby peer $discoveredInstance as ${peerLabel(peerHandle)}")
+                    if (shouldInitiateDataPath(discoveredInstance)) {
+                        maybeSendHello(peerHandle, discoveredInstance)
+                    } else {
+                        appendLog("Tie-break selected the other phone to initiate the Wi-Fi Aware data path.")
+                    }
                 }
 
                 override fun onMessageReceived(peerHandle: PeerHandle, message: ByteArray) {
                     val text = message.toString(Charsets.UTF_8)
-                    appendLog("Client received '$text' from ${peerLabel(peerHandle)}")
+                    appendLog("Nearby subscribe received '$text' from ${peerLabel(peerHandle)}")
                     if (text.startsWith("ready:")) {
-                        handleClientReady(peerHandle)
+                        rememberPeer(peerHandle, text.removePrefix("ready:"), isPublishHandle = false)
+                        handleInitiatorReady(peerHandle)
                     }
                     if (text.startsWith(fetchMessagePrefix)) {
                         pendingRemoteFetchRequest = true
-                        appendLog("Client received a fetch request from the host.")
+                        rememberPeer(peerHandle, remotePeerInstance, isPublishHandle = false)
+                        appendLog("Nearby peer requested this phone's seeded shelf.")
                         maybeStartPendingFetch()
                     }
                 }
 
                 override fun onMessageSendSucceeded(messageId: Int) {
-                    appendLog("Client sent message #$messageId")
+                    appendLog("Nearby subscribe sent message #$messageId")
                 }
 
                 override fun onMessageSendFailed(messageId: Int) {
-                    appendLog("Client failed to send message #$messageId")
+                    appendLog("Nearby subscribe failed to send message #$messageId")
                 }
             },
             mainHandler,
         )
     }
 
-    private fun handleHostHello(peerHandle: PeerHandle) {
-        if (hostNetworkCallback != null) {
-            appendLog("Host already requested a data path. Ignoring duplicate hello.")
+    private fun rememberPeer(
+        peerHandle: PeerHandle,
+        remoteInstance: String?,
+        isPublishHandle: Boolean,
+    ): Boolean {
+        val normalizedRemote = remoteInstance ?: remotePeerInstance ?: peerLabel(peerHandle)
+        val currentRemote = remotePeerInstance
+        if (currentRemote != null && currentRemote != normalizedRemote) {
+            appendLog("Ignoring extra nearby peer $normalizedRemote because this demo currently stays paired with $currentRemote.")
+            return false
+        }
+
+        remotePeerInstance = normalizedRemote
+        if (isPublishHandle) {
+            publishPeerHandle = peerHandle
+        } else {
+            subscribePeerHandle = peerHandle
+        }
+        return true
+    }
+
+    private fun parseDiscoveredPeerInstance(serviceSpecificInfo: ByteArray): String? {
+        if (serviceSpecificInfo.isEmpty()) {
+            return null
+        }
+        val text = serviceSpecificInfo.toString(Charsets.UTF_8)
+        if (!text.startsWith("peer:")) {
+            return null
+        }
+        return text.removePrefix("peer:").takeIf { it.isNotBlank() }
+    }
+
+    private fun shouldInitiateDataPath(remoteInstance: String): Boolean {
+        return appInstance < remoteInstance
+    }
+
+    private fun maybeSendHello(
+        peerHandle: PeerHandle,
+        remoteInstance: String,
+    ) {
+        if (helloSent || hostNetworkCallback != null || clientNetworkCallback != null || connectedSocket != null || clientSocketConnecting) {
             return
         }
 
-        activePeerHandle = peerHandle
-        setTransportStatus("Host preparing Wi-Fi Aware data path")
-        appendLog("Host preparing a Wi-Fi Aware data path for ${peerLabel(peerHandle)}")
+        helloSent = true
+        dataPathRole = DataPathRole.INITIATOR
+        setTransportStatus("Initiating Wi-Fi Aware data path")
+        appendLog("Tie-break selected this phone to initiate the Wi-Fi Aware data path with $remoteInstance.")
+        sendMessage(
+            session = subscribeSession,
+            peerHandle = peerHandle,
+            payload = "hello:$appInstance",
+            reason = "peer hello",
+        )
+    }
+
+    private fun handleResponderHello(
+        peerHandle: PeerHandle,
+        remoteInstance: String?,
+    ) {
+        rememberPeer(peerHandle, remoteInstance, isPublishHandle = true)
+        if (hostNetworkCallback != null) {
+            appendLog("Responder already requested a Wi-Fi Aware data path. Ignoring duplicate hello.")
+            return
+        }
+
+        dataPathRole = DataPathRole.RESPONDER
+        setTransportStatus("Preparing Wi-Fi Aware data path")
+        appendLog("Preparing a Wi-Fi Aware data path for ${remotePeerInstance ?: peerLabel(peerHandle)}")
 
         val session = publishSession
         if (session == null) {
-            appendLog("Host publish session is null.")
+            appendLog("Publish session is null.")
             return
         }
 
@@ -793,8 +889,8 @@ class MainActivity : Activity() {
             closeHostSockets()
             val serverSocket = ServerSocket(0)
             hostServerSocket = serverSocket
-            appendLog("Host server socket listening on port ${serverSocket.localPort}")
-            ioExecutor.execute { acceptHostConnections(serverSocket) }
+            appendLog("Responder server socket listening on port ${serverSocket.localPort}")
+            ioExecutor.execute { acceptResponderConnections(serverSocket) }
 
             val specifier =
                 WifiAwareNetworkSpecifier.Builder(session, peerHandle)
@@ -813,14 +909,14 @@ class MainActivity : Activity() {
                 object : ConnectivityManager.NetworkCallback() {
                     override fun onAvailable(network: Network) {
                         hostNetwork = network
-                        setTransportStatus("Host Wi-Fi Aware data path available")
-                        appendLog("Host Wi-Fi Aware data path available.")
+                        setTransportStatus("Wi-Fi Aware data path available")
+                        appendLog("Responder Wi-Fi Aware data path available.")
                     }
 
                     override fun onLost(network: Network) {
                         if (network == hostNetwork) {
-                            appendLog("Host data path lost.")
-                            setTransportStatus("Host Wi-Fi Aware data path lost")
+                            appendLog("Responder data path lost.")
+                            setTransportStatus("Wi-Fi Aware data path lost")
                             hostNetwork = null
                             clearHostNetworkRequest()
                             closeHostSockets()
@@ -828,8 +924,8 @@ class MainActivity : Activity() {
                     }
 
                     override fun onUnavailable() {
-                        appendLog("Host data path unavailable.")
-                        setTransportStatus("Host Wi-Fi Aware data path unavailable")
+                        appendLog("Responder data path unavailable.")
+                        setTransportStatus("Wi-Fi Aware data path unavailable")
                         clearHostNetworkRequest()
                         closeHostSockets()
                     }
@@ -842,48 +938,72 @@ class MainActivity : Activity() {
                 session = publishSession,
                 peerHandle = peerHandle,
                 payload = "ready:$appInstance",
-                reason = "host requested data path",
+                reason = "responder requested data path",
             )
         } catch (e: IOException) {
-            appendLog("Host setup failed: ${e.message}")
-            setTransportStatus("Host setup failed")
+            appendLog("Responder setup failed: ${e.message}")
+            setTransportStatus("Wi-Fi Aware setup failed")
             clearHostNetworkRequest()
             closeHostSockets()
         }
     }
 
-    private fun acceptHostConnections(serverSocket: ServerSocket) {
-        while (!serverSocket.isClosed && role == Role.HOST) {
+    private fun acceptResponderConnections(serverSocket: ServerSocket) {
+        while (!serverSocket.isClosed && role == Role.PEER) {
             try {
                 val socket = serverSocket.accept()
                 hostSocket?.close()
                 hostSocket = socket
-                setTransportStatus("Host Wi-Fi Aware TCP socket connected")
-                appendLog("Host accepted Wi-Fi Aware TCP socket from client.")
-                updateControls()
-                handleHostTransfers(socket)
+                bindConnectedSocket(socket, "Responder")
             } catch (e: IOException) {
-                if (!serverSocket.isClosed && role == Role.HOST) {
-                    appendLog("Host accept failed: ${e.message}")
-                    setTransportStatus("Host socket accept failed")
+                if (!serverSocket.isClosed && role == Role.PEER) {
+                    appendLog("Responder accept failed: ${e.message}")
+                    setTransportStatus("Wi-Fi Aware socket accept failed")
                 }
                 return
             }
         }
     }
 
-    private fun handleHostTransfers(socket: Socket) {
-        try {
+    private fun bindConnectedSocket(
+        socket: Socket,
+        connectionLabel: String,
+    ) {
+        synchronized(socketWriteLock) {
+            safeClose(connectedInput)
+            safeClose(connectedOutput)
+            if (connectedSocket != null && connectedSocket !== socket) {
+                safeClose(connectedSocket)
+            }
             val input = DataInputStream(BufferedInputStream(socket.getInputStream(), ioBufferSize))
             val output = DataOutputStream(BufferedOutputStream(socket.getOutputStream(), ioBufferSize))
+            connectedSocket = socket
+            connectedInput = input
+            connectedOutput = output
+            pendingTrackAcks.clear()
+            setTransportStatus("Wi-Fi Aware peer socket connected")
+            appendLog("$connectionLabel Wi-Fi Aware TCP socket connected.")
+            updateControls()
+            ioExecutor.execute { readConnectedSocket(socket, input, output, connectionLabel) }
+        }
+        maybeStartPendingFetch()
+    }
+
+    private fun readConnectedSocket(
+        socket: Socket,
+        input: DataInputStream,
+        output: DataOutputStream,
+        connectionLabel: String,
+    ) {
+        try {
             var activeSetLabel = "Unknown Set"
 
-            while (!socket.isClosed && role == Role.HOST) {
+            while (!socket.isClosed && role == Role.PEER) {
                 val command =
                     try {
                         input.readUTF()
                     } catch (_: EOFException) {
-                        appendLog("Host audio stream closed by client.")
+                        appendLog("Peer audio stream closed.")
                         break
                     }
 
@@ -891,7 +1011,7 @@ class MainActivity : Activity() {
                     commandSet -> {
                         activeSetLabel = input.readUTF()
                         val trackCount = input.readInt()
-                        appendLog("Host receiving Wi-Fi Aware audio $activeSetLabel with $trackCount tracks.")
+                        appendLog("Receiving Wi-Fi Aware audio $activeSetLabel with $trackCount tracks.")
                     }
 
                     commandTrack -> {
@@ -900,12 +1020,12 @@ class MainActivity : Activity() {
                         val announcedNhash = input.readUTF()
                         val expectedBytes = input.readLong()
                         if (expectedBytes <= 0L) {
-                            appendLog("Host received invalid track size $expectedBytes for $trackId.")
+                            appendLog("Received invalid track size $expectedBytes for $trackId.")
                             break
                         }
 
                         appendLog(
-                            "Host receiving track $trackId from $trackSetLabel inside $activeSetLabel nhash=$announcedNhash (${formatByteCount(expectedBytes)}) over Wi-Fi Aware",
+                            "Receiving track $trackId from $trackSetLabel inside $activeSetLabel nhash=$announcedNhash (${formatByteCount(expectedBytes)}) over Wi-Fi Aware",
                         )
                         val tempFile = demoStore.createIncomingTempFile(trackId)
                         var remaining = expectedBytes
@@ -915,7 +1035,7 @@ class MainActivity : Activity() {
                                 val chunk = min(ioBuffer.size.toLong(), remaining).toInt()
                                 val read = input.read(ioBuffer, 0, chunk)
                                 if (read < 0) {
-                                    throw EOFException("Client disconnected mid-track transfer.")
+                                    throw EOFException("Peer disconnected mid-track transfer.")
                                 }
                                 fileOutput.write(ioBuffer, 0, read)
                                 remaining -= read.toLong()
@@ -950,55 +1070,77 @@ class MainActivity : Activity() {
                         }
 
                         appendLog(result.message)
-                        output.writeUTF(commandAck)
-                        output.writeBoolean(result.success)
-                        output.writeUTF(result.actualNhash ?: "")
-                        output.writeBoolean(result.alreadyPresent)
-                        output.writeUTF(result.message)
-                        output.flush()
+                        synchronized(socketWriteLock) {
+                            output.writeUTF(commandAck)
+                            output.writeBoolean(result.success)
+                            output.writeUTF(result.actualNhash ?: "")
+                            output.writeBoolean(result.alreadyPresent)
+                            output.writeUTF(result.message)
+                            output.flush()
+                        }
                     }
 
                     commandDone -> {
                         val setLabel = input.readUTF()
                         val trackCount = input.readInt()
-                        appendLog("Host finished receiving Wi-Fi Aware audio $setLabel ($trackCount tracks).")
+                        appendLog("Finished receiving Wi-Fi Aware audio $setLabel ($trackCount tracks).")
+                    }
+
+                    commandAck -> {
+                        pendingTrackAcks.offer(
+                            TrackAck(
+                                success = input.readBoolean(),
+                                actualNhash = input.readUTF().ifBlank { null },
+                                alreadyPresent = input.readBoolean(),
+                                message = input.readUTF(),
+                            ),
+                        )
                     }
 
                     else -> {
-                        appendLog("Host received unexpected command '$command'. Closing socket.")
+                        appendLog("Received unexpected command '$command'. Closing socket.")
                         break
                     }
                 }
             }
         } catch (e: IOException) {
-            if (role == Role.HOST) {
-                appendLog("Host socket error: ${e.message}")
-                setTransportStatus("Host socket error")
+            if (role == Role.PEER) {
+                appendLog("$connectionLabel socket error: ${e.message}")
+                setTransportStatus("Wi-Fi Aware socket error")
             }
         } finally {
             safeClose(socket)
             if (hostSocket === socket) {
                 hostSocket = null
             }
-            appendLog("Host TCP socket closed.")
+            if (clientSocket === socket) {
+                clientSocket = null
+            }
+            if (connectedSocket === socket) {
+                connectedSocket = null
+                connectedInput = null
+                connectedOutput = null
+            }
+            appendLog("$connectionLabel TCP socket closed.")
             updateControls()
         }
     }
 
-    private fun handleClientReady(peerHandle: PeerHandle) {
+    private fun handleInitiatorReady(peerHandle: PeerHandle) {
         if (clientNetworkCallback != null || clientSocket != null) {
-            appendLog("Client already requested a data path.")
+            appendLog("Initiator already requested a data path.")
             return
         }
 
         val session = subscribeSession
         if (session == null) {
-            appendLog("Client subscribe session is null.")
+            appendLog("Subscribe session is null.")
             return
         }
 
-        setTransportStatus("Client requesting Wi-Fi Aware data path")
-        appendLog("Client requesting a Wi-Fi Aware data path to ${peerLabel(peerHandle)}")
+        dataPathRole = DataPathRole.INITIATOR
+        setTransportStatus("Requesting Wi-Fi Aware data path")
+        appendLog("Initiating a Wi-Fi Aware data path to ${remotePeerInstance ?: peerLabel(peerHandle)}")
         val specifier =
             WifiAwareNetworkSpecifier.Builder(session, peerHandle)
                 .setPskPassphrase(securePassphrase)
@@ -1014,8 +1156,8 @@ class MainActivity : Activity() {
             object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: Network) {
                     clientNetwork = network
-                    setTransportStatus("Client Wi-Fi Aware data path available")
-                    appendLog("Client Wi-Fi Aware data path available.")
+                    setTransportStatus("Wi-Fi Aware data path available")
+                    appendLog("Initiator Wi-Fi Aware data path available.")
                     maybeConnectClientSocket()
                 }
 
@@ -1024,15 +1166,15 @@ class MainActivity : Activity() {
                     clientPeerIpv6 = awareInfo.peerIpv6Addr
                     clientPeerPort = awareInfo.port
                     appendLog(
-                        "Client learned host Wi-Fi Aware endpoint port=${awareInfo.port} ipv6=${awareInfo.peerIpv6Addr?.hostAddress ?: "null"}",
+                        "Initiator learned responder endpoint port=${awareInfo.port} ipv6=${awareInfo.peerIpv6Addr?.hostAddress ?: "null"}",
                     )
                     maybeConnectClientSocket()
                 }
 
                 override fun onLost(network: Network) {
                     if (network == clientNetwork) {
-                        appendLog("Client data path lost.")
-                        setTransportStatus("Client Wi-Fi Aware data path lost")
+                        appendLog("Initiator data path lost.")
+                        setTransportStatus("Wi-Fi Aware data path lost")
                         clientNetwork = null
                         clientPeerIpv6 = null
                         clientPeerPort = 0
@@ -1042,8 +1184,8 @@ class MainActivity : Activity() {
                 }
 
                 override fun onUnavailable() {
-                    appendLog("Client data path unavailable.")
-                    setTransportStatus("Client Wi-Fi Aware data path unavailable")
+                    appendLog("Initiator data path unavailable.")
+                    setTransportStatus("Wi-Fi Aware data path unavailable")
                     clearClientNetworkRequest()
                     closeClientSocket()
                 }
@@ -1065,67 +1207,54 @@ class MainActivity : Activity() {
 
         ioExecutor.execute {
             try {
-                appendLog("Client opening Wi-Fi Aware TCP socket to [${peerIpv6.hostAddress}]:$peerPort")
+                appendLog("Initiator opening Wi-Fi Aware TCP socket to [${peerIpv6.hostAddress}]:$peerPort")
                 val socket = network.socketFactory.createSocket(peerIpv6, peerPort)
                 clientSocket = socket
-                clientInput = DataInputStream(BufferedInputStream(socket.getInputStream(), ioBufferSize))
-                clientOutput = DataOutputStream(BufferedOutputStream(socket.getOutputStream(), ioBufferSize))
                 clientSocketConnecting = false
-                setTransportStatus("Client Wi-Fi Aware TCP socket connected")
-                appendLog("Client Wi-Fi Aware TCP socket connected. Ready to share the seeded shelf.")
-                updateControls()
-                maybeStartPendingFetch()
+                bindConnectedSocket(socket, "Initiator")
             } catch (e: IOException) {
                 clientSocketConnecting = false
-                appendLog("Client socket connect failed: ${e.message}")
-                setTransportStatus("Client socket connect failed")
+                appendLog("Initiator socket connect failed: ${e.message}")
+                setTransportStatus("Wi-Fi Aware socket connect failed")
                 closeClientSocket()
             }
         }
     }
 
     private fun requestFetchFromPeer() {
-        if (role != Role.HOST) {
-            appendLog("Fetch From Peer is only available on the host phone.")
+        if (role != Role.PEER) {
+            appendLog("Start Nearby first.")
             return
         }
 
-        val peerHandle = activePeerHandle
-        if (peerHandle == null) {
-            appendLog("No Wi-Fi Aware peer discovered yet.")
+        if (connectedSocket == null) {
+            appendLog("Wait for the Wi-Fi Aware peer socket before requesting a fetch.")
             return
         }
 
-        if (hostSocket == null) {
-            appendLog("Wait for the host TCP socket before requesting a fetch.")
+        if (!sendMessageToActivePeer("$fetchMessagePrefix$appInstance", "peer requested seeded set")) {
+            appendLog("No nearby peer discovered yet.")
             return
         }
-
-        sendMessage(
-            session = publishSession,
-            peerHandle = peerHandle,
-            payload = "$fetchMessagePrefix$appInstance",
-            reason = "host requested seeded set",
-        )
-        appendLog("Host requested the client's seeded shelf.")
+        appendLog("Requested the nearby peer's available shelf.")
     }
 
     private fun maybeStartPendingFetch() {
         if (
-            role == Role.CLIENT &&
+            role == Role.PEER &&
             pendingRemoteFetchRequest &&
-            clientSocket != null &&
+            connectedSocket != null &&
             !clientSocketConnecting &&
             !transferInFlight
         ) {
             pendingRemoteFetchRequest = false
-            sendSeededSet("host fetch request")
+            sendSeededSet("nearby fetch request")
         }
     }
 
     private fun sendSeededSet(trigger: String) {
-        if (role != Role.CLIENT) {
-            appendLog("Only the client shares the seeded set in this increment.")
+        if (role != Role.PEER) {
+            appendLog("Start Nearby first.")
             return
         }
 
@@ -1135,86 +1264,107 @@ class MainActivity : Activity() {
         }
 
         localTracks = demoStore.currentLocalTracks()
-        if (localTracks.isEmpty()) {
-            appendLog("Seed Set A or Set B on the client first.")
+        receivedTracks = demoStore.receivedTracks()
+        val availableTracks = shareableTracks()
+        if (availableTracks.isEmpty()) {
+            appendLog("Seed Set A or Set B on this phone first, or fetch tracks from a nearby peer.")
             updateTrackViews()
             return
         }
 
-        val input = clientInput
-        val output = clientOutput
-        if (clientSocket == null || input == null || output == null) {
-            appendLog("Client socket is not connected yet.")
+        val output = connectedOutput
+        if (connectedSocket == null || output == null) {
+            appendLog("The Wi-Fi Aware peer socket is not connected yet.")
             return
         }
 
-        val setLabel = shelfLabel(localTracks)
+        val setLabel = shelfLabel(availableTracks)
         transferInFlight = true
+        pendingTrackAcks.clear()
         updateControls()
 
         ioExecutor.execute {
             try {
-                appendLog("Client sending Wi-Fi Aware audio $setLabel with ${localTracks.size} tracks ($trigger).")
-                output.writeUTF(commandSet)
-                output.writeUTF(setLabel)
-                output.writeInt(localTracks.size)
-                output.flush()
-
-                for (track in localTracks.sortedBy { it.id }) {
-                    appendLog(
-                        "Client sending ${track.id} (${track.title}) nhash=${track.nhash} size=${formatByteCount(track.sizeBytes)} over Wi-Fi Aware",
-                    )
-                    output.writeUTF(commandTrack)
-                    output.writeUTF(track.id)
-                    output.writeUTF(track.setLabel)
-                    output.writeUTF(track.nhash)
-                    output.writeLong(track.sizeBytes)
-
-                    FileInputStream(track.file).use { fileInput ->
-                        while (true) {
-                            val read = fileInput.read(ioBuffer)
-                            if (read < 0) {
-                                break
-                            }
-                            output.write(ioBuffer, 0, read)
-                        }
-                    }
+                appendLog("Sending Wi-Fi Aware audio $setLabel with ${availableTracks.size} tracks ($trigger).")
+                synchronized(socketWriteLock) {
+                    output.writeUTF(commandSet)
+                    output.writeUTF(setLabel)
+                    output.writeInt(availableTracks.size)
                     output.flush()
+                }
 
-                    val ack = input.readUTF()
-                    if (ack != commandAck) {
-                        appendLog("Client expected ACK but received '$ack'.")
-                        break
+                for (track in availableTracks.sortedBy { it.id }) {
+                    appendLog(
+                        "Sending ${track.id} (${track.title}) nhash=${track.nhash} size=${formatByteCount(track.sizeBytes)} over Wi-Fi Aware",
+                    )
+                    synchronized(socketWriteLock) {
+                        output.writeUTF(commandTrack)
+                        output.writeUTF(track.id)
+                        output.writeUTF(track.setLabel)
+                        output.writeUTF(track.nhash)
+                        output.writeLong(track.sizeBytes)
+
+                        FileInputStream(track.file).use { fileInput ->
+                            while (true) {
+                                val read = fileInput.read(ioBuffer)
+                                if (read < 0) {
+                                    break
+                                }
+                                output.write(ioBuffer, 0, read)
+                            }
+                        }
+                        output.flush()
                     }
 
-                    val success = input.readBoolean()
-                    val actualNhash = input.readUTF()
-                    val alreadyPresent = input.readBoolean()
-                    val message = input.readUTF()
+                    val ack =
+                        pendingTrackAcks.poll(20, TimeUnit.SECONDS)
+                            ?: throw IOException("Timed out waiting for peer ACK for ${track.id}.")
                     appendLog(
-                        "Host reply for ${track.id}: success=$success actualNhash=${actualNhash.ifBlank { "n/a" }} alreadyPresent=$alreadyPresent",
+                        "Peer reply for ${track.id}: success=${ack.success} actualNhash=${ack.actualNhash ?: "n/a"} alreadyPresent=${ack.alreadyPresent}",
                     )
-                    appendLog(message)
-                    if (!success) {
-                        appendLog("Stopping set transfer because host rejected ${track.id}.")
+                    appendLog(ack.message)
+                    if (!ack.success) {
+                        appendLog("Stopping set transfer because the peer rejected ${track.id}.")
                         break
                     }
                 }
 
-                output.writeUTF(commandDone)
-                output.writeUTF(setLabel)
-                output.writeInt(localTracks.size)
-                output.flush()
-                appendLog("Client finished sending Wi-Fi Aware audio $setLabel.")
+                synchronized(socketWriteLock) {
+                    output.writeUTF(commandDone)
+                    output.writeUTF(setLabel)
+                    output.writeInt(availableTracks.size)
+                    output.flush()
+                }
+                appendLog("Finished sending Wi-Fi Aware audio $setLabel.")
             } catch (e: IOException) {
                 appendLog("Set transfer failed: ${e.message}")
                 setTransportStatus("Set transfer failed")
-                closeClientSocket()
+                closeConnectedSocket()
             } finally {
                 transferInFlight = false
+                maybeStartPendingFetch()
                 updateControls()
             }
         }
+    }
+
+    private fun sendMessageToActivePeer(
+        payload: String,
+        reason: String,
+    ): Boolean {
+        val subscribeHandle = subscribePeerHandle
+        if (subscribeSession != null && subscribeHandle != null) {
+            sendMessage(subscribeSession, subscribeHandle, payload, reason)
+            return true
+        }
+
+        val publishHandle = publishPeerHandle
+        if (publishSession != null && publishHandle != null) {
+            sendMessage(publishSession, publishHandle, payload, reason)
+            return true
+        }
+
+        return false
     }
 
     private fun sendMessage(
@@ -1237,9 +1387,11 @@ class MainActivity : Activity() {
         pendingRole = null
         transferInFlight = false
         pendingRemoteFetchRequest = false
+        pendingTrackAcks.clear()
 
         clearClientNetworkRequest()
         clearHostNetworkRequest()
+        closeConnectedSocket()
         closeClientSocket()
         closeHostSockets()
 
@@ -1250,7 +1402,11 @@ class MainActivity : Activity() {
         publishSession = null
         subscribeSession = null
         awareSession = null
-        activePeerHandle = null
+        publishPeerHandle = null
+        subscribePeerHandle = null
+        remotePeerInstance = null
+        helloSent = false
+        dataPathRole = DataPathRole.NONE
         hostNetwork = null
         clientNetwork = null
         clientPeerIpv6 = null
@@ -1295,13 +1451,19 @@ class MainActivity : Activity() {
     }
 
     private fun closeClientSocket() {
-        safeClose(clientInput)
-        safeClose(clientOutput)
         safeClose(clientSocket)
-        clientInput = null
-        clientOutput = null
         clientSocket = null
         clientSocketConnecting = false
+        updateControls()
+    }
+
+    private fun closeConnectedSocket() {
+        safeClose(connectedInput)
+        safeClose(connectedOutput)
+        safeClose(connectedSocket)
+        connectedInput = null
+        connectedOutput = null
+        connectedSocket = null
         updateControls()
     }
 
@@ -1325,7 +1487,7 @@ class MainActivity : Activity() {
 
     private fun updateRoleView() {
         onMain {
-            roleView.text = "ROLE  ${roleLabel(role)}"
+            roleView.text = "MODE  ${roleLabel(role)}"
         }
     }
 
@@ -1369,7 +1531,7 @@ class MainActivity : Activity() {
                 emptyView = receivedEmptyView,
                 tracks = filteredReceived,
                 emptyMessage = if (receivedTracks.isEmpty()) {
-                    "Nothing fetched yet. Start Host and tap Fetch From Peer after the Wi-Fi Aware socket connects."
+                    "Nothing fetched yet. Tap Start Nearby on both phones, wait for the Wi-Fi Aware peer socket, then tap Fetch From Peer."
                 } else {
                     "No fetched tracks match \"$searchQuery\"."
                 },
@@ -1383,19 +1545,18 @@ class MainActivity : Activity() {
             seedSetAButton.isEnabled = role == Role.IDLE
             seedSetBButton.isEnabled = role == Role.IDLE
             clearDataButton.isEnabled = !transferInFlight
-            hostButton.isEnabled = role == Role.IDLE
-            clientButton.isEnabled = role == Role.IDLE
+            startNearbyButton.isEnabled = role == Role.IDLE
             stopButton.isEnabled = role != Role.IDLE
             shareNowButton.isEnabled =
-                role == Role.CLIENT &&
-                clientSocket != null &&
+                role == Role.PEER &&
+                connectedSocket != null &&
                 !clientSocketConnecting &&
                 !transferInFlight &&
-                localTracks.isNotEmpty()
+                shareableTracks().isNotEmpty()
             fetchPeerButton.isEnabled =
-                role == Role.HOST &&
-                hostSocket != null &&
-                activePeerHandle != null &&
+                role == Role.PEER &&
+                connectedSocket != null &&
+                (publishPeerHandle != null || subscribePeerHandle != null) &&
                 !transferInFlight
             heroActionButton.isEnabled = selectedDisplayTrack() != null
         }
@@ -1419,6 +1580,16 @@ class MainActivity : Activity() {
         }.sortedBy { it.title.lowercase(Locale.US) }
     }
 
+    private fun shareableTracks(): List<AudioTrackInfo> {
+        val deduped = LinkedHashMap<String, AudioTrackInfo>()
+        (localTracks + receivedTracks).forEach { track ->
+            if (!deduped.containsKey(track.nhash)) {
+                deduped[track.nhash] = track
+            }
+        }
+        return deduped.values.sortedBy { it.id }
+    }
+
     private fun selectedDisplayTrack(
         filteredLocal: List<AudioTrackInfo> = filteredTracks(localTracks),
         filteredReceived: List<AudioTrackInfo> = filteredTracks(receivedTracks),
@@ -1440,7 +1611,7 @@ class MainActivity : Activity() {
             heroEyebrowView.text = "Seed a shelf or fetch nearby"
             heroTitleView.text = "No active track"
             heroMetaView.text = "This screen turns into a player as soon as you have local or fetched audio."
-            heroDetailView.text = "Wi-Fi Aware host fetches. Wi-Fi Aware client carries the seeded set."
+            heroDetailView.text = "Both phones can start nearby mode, connect as peers, and fetch or share over Wi-Fi Aware."
             heroActionButton.text = "Play"
             heroActionButton.isEnabled = false
             return
@@ -1694,8 +1865,7 @@ class MainActivity : Activity() {
     private fun roleLabel(value: Role): String {
         return when (value) {
             Role.IDLE -> "Idle"
-            Role.HOST -> "Host"
-            Role.CLIENT -> "Client"
+            Role.PEER -> "Nearby"
         }
     }
 

@@ -54,6 +54,25 @@ Success criteria:
 - the host logs that each received track was verified by recomputing the same `nhash`
 - the host stores the verified received files locally
 
+## Increment 2.5
+
+Peer-mode transport with no manual host/client UI.
+
+Scope:
+
+- both phones expose a single `Start Nearby` action
+- under the hood, each phone publishes and subscribes at the same time
+- a deterministic tie-break picks which phone initiates the Wi-Fi Aware data path
+- `Fetch From Peer` works from either connected phone
+- `Share Available Shelf` can send anything the phone has already seeded or fetched
+
+Success criteria:
+
+- both phones can tap `Start Nearby` without manually choosing host or client
+- logs still prove one side initiated and the other responded on the Wi-Fi Aware data path
+- an empty phone can fetch the full 4-track shelf from a nearby phone after both simply start nearby mode
+- receiver-side `nhash` verification still happens on every transferred file
+
 ## Increment 3
 
 Add tiny manifests and dedupe.
