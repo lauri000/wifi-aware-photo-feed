@@ -10,7 +10,7 @@ use crate::types::{
 };
 use crate::NearbyHashtreeError;
 
-const SERVICE_NAME: &str = "nostr-wifi-aware";
+const SERVICE_NAME: &str = "_nostrwifiaware._tcp";
 const SECURE_PASSPHRASE: &str = "awarebenchpass123";
 const TCP_PROTOCOL: i32 = 6;
 const ALBUM_LABEL: &str = "Local Instagram Feed";
