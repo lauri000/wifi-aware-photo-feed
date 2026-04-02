@@ -4,7 +4,16 @@
 
 ## Current Prototype
 
-The codebase currently contains a very dummy Android app whose only job is Wi-Fi Aware ping/pong between two phones. Open the app on two Android devices that support Wi-Fi Aware, tap Start on both, and watch the log for discovery plus `ping` and `pong` messages.
+The codebase currently contains a very dummy Android app for Wi-Fi Aware bandwidth testing between two Android phones.
+
+Use it like this:
+
+1. Open the app on both phones.
+2. Tap `Start Host` on one phone.
+3. Tap `Start Client` on the other phone.
+4. Wait for the client log to say the TCP socket is connected.
+5. Tap `1 Mbit`, `10 Mbit`, or `100 Mbit` on the client.
+6. Read the measured throughput in Mbit/s from both logs.
 
 ### Build
 
