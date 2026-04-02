@@ -1,0 +1,27 @@
+[package]
+name = "nearby-hashtree-ffi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "UniFFI bridge for nearby hashtree demo operations"
+
+[lib]
+crate-type = ["lib", "cdylib", "staticlib"]
+name = "nearby_hashtree_ffi"
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+
+[dependencies]
+hashtree-core.workspace = true
+futures.workspace = true
+thiserror.workspace = true
+uniffi.workspace = true
+tokio.workspace = true
+
+[build-dependencies]
+uniffi = { version = "0.28", features = ["build"] }
+
+[dev-dependencies]
+tempfile = "3"

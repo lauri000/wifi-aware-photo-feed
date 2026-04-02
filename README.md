@@ -4,21 +4,31 @@
 
 ## Current Prototype
 
-The codebase currently contains a very dummy Android app for Wi-Fi Aware bandwidth testing between two Android phones.
+The codebase currently contains increment 1 of the nearby hashtree demo: a very small Android app that sends one real hashtree-addressed blob from a `Client` phone to a `Host` phone over a Wi-Fi Aware data path.
 
 Use it like this:
 
 1. Open the app on both phones.
-2. Tap `Start Host` on one phone.
-3. Tap `Start Client` on the other phone.
-4. Wait for the client log to say the TCP socket is connected.
-5. Tap `1 Mbit`, `10 Mbit`, or `100 Mbit` on the client.
-6. Read the measured throughput in Mbit/s from both logs.
+2. On the phone that will act as the sender, tap `Seed Demo Blob`.
+3. Tap `Start Host` on the receiving phone.
+4. Tap `Start Client` on the sending phone.
+5. Wait for the client log to say the Wi-Fi Aware TCP socket is connected.
+6. Tap `Send Hashtree Blob` on the client.
+7. Verify that both phones log the same `nhash`, and that the host logs receiver-side verification plus storage.
 
-Measured results from the first real-device run are documented in [docs/bandwidth-results.md](/Users/l/Projects/iris/nostr-wifi-aware/docs/bandwidth-results.md).
-The next-step nearby content sync plan is documented in [docs/nearby-hashtree-demo-plan.md](/Users/l/Projects/iris/nostr-wifi-aware/docs/nearby-hashtree-demo-plan.md).
+The crude split-increment plan is documented in [docs/nearby-hashtree-increments.md](/Users/l/Projects/iris/nostr-wifi-aware/docs/nearby-hashtree-increments.md).
+The earlier fuller nearby sync plan is still documented in [docs/nearby-hashtree-demo-plan.md](/Users/l/Projects/iris/nostr-wifi-aware/docs/nearby-hashtree-demo-plan.md).
+The older Wi-Fi Aware bandwidth measurements are preserved in [docs/bandwidth-results.md](/Users/l/Projects/iris/nostr-wifi-aware/docs/bandwidth-results.md).
 
 ### Build
+
+If you change the Rust `hashtree` bridge, rebuild the Android native libraries first:
+
+```bash
+scripts/build-rust-android.sh
+```
+
+Then build the APK:
 
 ```bash
 ./gradlew assembleDebug
@@ -82,6 +92,7 @@ scripts/stay-awake.sh status
 
 - The app package is `com.lauri000.nostrwifiaware`.
 - The app writes its event log both to the screen and to logcat under the tag `NostrWifiAware`.
+- Increment 1 only proves one thing: a real hashtree `nhash` can be transferred and verified over a Wi-Fi Aware data path.
 - For Wi-Fi Aware to work, keep the app open on both phones.
 - Wi-Fi should be on.
 - Location services should be on.

@@ -34,3 +34,7 @@ android {
         jvmTarget = "17"
     }
 }
+
+dependencies {
+    implementation("net.java.dev.jna:jna:5.13.0@aar")
+}

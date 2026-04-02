@@ -1,0 +1,15 @@
+[workspace]
+members = ["crates/*"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+hashtree-core = { path = "../../hashtree/rust/crates/hashtree-core" }
+futures = "0.3"
+thiserror = "1.0"
+uniffi = { version = "0.28", features = ["cli"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "io-util"] }
