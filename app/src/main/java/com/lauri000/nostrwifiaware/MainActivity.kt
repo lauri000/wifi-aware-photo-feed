@@ -85,7 +85,7 @@ class MainActivity : Activity() {
     )
 
     companion object {
-        private const val serviceName = "nostr-wifi-aware"
+        private const val serviceName = "_nostrwifiaware._tcp"
         private const val permissionRequestCode = 1001
         private const val cameraRequestCode = 2001
         private const val logTag = "NostrWifiAware"

@@ -2,6 +2,8 @@
 
 `nostr-wifi-aware` is currently a simple Android-first local photo-sharing demo built on Wi-Fi Aware plus hashtree-addressed storage.
 
+The Wi-Fi Aware service type is `_nostrwifiaware._tcp`, using DNS-SD service-type formatting so it is compatible with Apple's Wi-Fi Aware service declaration requirements as well.
+
 ## Current Prototype
 
 The codebase currently contains a photo-first peer-mode demo: a small Android app with two pages, `Config` and `Feed`. On `Config`, the app launches the camera only, keeps captured photos in app-owned hashtree-addressed storage, starts Wi-Fi Aware peer mode, fetches a nearby photo feed, and pushes its own available photos. It does not browse the gallery. On `Feed`, local photos and nearby photos are shown together in reverse chronological order.
