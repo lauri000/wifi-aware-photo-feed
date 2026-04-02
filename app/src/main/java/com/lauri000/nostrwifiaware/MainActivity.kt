@@ -60,9 +60,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
 
 class MainActivity : Activity() {
     companion object {
@@ -482,13 +480,13 @@ class MainActivity : Activity() {
             appCore.onAndroidEvent(AndroidEvent.PermissionsGranted)
             return
         }
-        runOnMainBlocking {
+        runOnMain {
             requestPermissions(missingPermissions.toTypedArray(), permissionRequestCode)
         }
     }
 
     private fun executeLaunchCameraCapture(outputPath: String) {
-        runOnMainBlocking {
+        runOnMain {
             try {
                 val outputFile = File(outputPath)
                 outputFile.parentFile?.mkdirs()
@@ -502,7 +500,7 @@ class MainActivity : Activity() {
                 if (intent.resolveActivity(packageManager) == null) {
                     outputFile.delete()
                     dispatchAndroidEvent(AndroidEvent.CameraCaptureCancelled)
-                    return@runOnMainBlocking
+                    return@runOnMain
                 }
 
                 currentCaptureRequest = CaptureRequest(outputPath, uri)
@@ -515,10 +513,10 @@ class MainActivity : Activity() {
     }
 
     private fun executeStartAwareAttach() {
-        runOnMainBlocking {
+        runOnMain {
             if (Build.VERSION.SDK_INT < 29 || !packageManager.hasSystemFeature(PackageManager.FEATURE_WIFI_AWARE) || !wifiAwareManager.isAvailable) {
                 dispatchAndroidEvent(AndroidEvent.AwareAttachFailed)
-                return@runOnMainBlocking
+                return@runOnMain
             }
 
             wifiAwareManager.attach(
@@ -541,8 +539,8 @@ class MainActivity : Activity() {
         serviceName: String,
         serviceInfo: String,
     ) {
-        runOnMainBlocking {
-            val session = awareSession ?: return@runOnMainBlocking
+        runOnMain {
+            val session = awareSession ?: return@runOnMain
             val config =
                 PublishConfig.Builder()
                     .setServiceName(serviceName)
@@ -593,8 +591,8 @@ class MainActivity : Activity() {
     }
 
     private fun executeStartSubscribe(serviceName: String) {
-        runOnMainBlocking {
-            val session = awareSession ?: return@runOnMainBlocking
+        runOnMain {
+            val session = awareSession ?: return@runOnMain
             val config =
                 SubscribeConfig.Builder()
                     .setServiceName(serviceName)
@@ -661,12 +659,12 @@ class MainActivity : Activity() {
     }
 
     private fun executeSendDiscoveryMessage(command: AndroidCommand.SendDiscoveryMessage) {
-        runOnMainBlocking {
+        runOnMain {
             val peerHandle =
                 when (command.channel) {
                     DiscoveryChannel.PUBLISH -> publishHandles[command.handleId]
                     DiscoveryChannel.SUBSCRIBE -> subscribeHandles[command.handleId]
-                } ?: return@runOnMainBlocking
+                } ?: return@runOnMain
             when (command.channel) {
                 DiscoveryChannel.PUBLISH -> publishSession?.sendMessage(
                     peerHandle,
@@ -683,9 +681,9 @@ class MainActivity : Activity() {
     }
 
     private fun executeOpenResponder(command: AndroidCommand.OpenResponder) {
-        runOnMainBlocking {
-            val session = publishSession ?: return@runOnMainBlocking
-            val peerHandle = publishHandles[command.handleId] ?: return@runOnMainBlocking
+        runOnMain {
+            val session = publishSession ?: return@runOnMain
+            val peerHandle = publishHandles[command.handleId] ?: return@runOnMain
             try {
                 responderServerSocket?.close()
                 val serverSocket = ServerSocket(0)
@@ -741,9 +739,9 @@ class MainActivity : Activity() {
     }
 
     private fun executeOpenInitiator(command: AndroidCommand.OpenInitiator) {
-        runOnMainBlocking {
-            val session = subscribeSession ?: return@runOnMainBlocking
-            val peerHandle = subscribeHandles[command.handleId] ?: return@runOnMainBlocking
+        runOnMain {
+            val session = subscribeSession ?: return@runOnMain
+            val peerHandle = subscribeHandles[command.handleId] ?: return@runOnMain
             val specifier =
                 WifiAwareNetworkSpecifier.Builder(session, peerHandle)
                     .setPskPassphrase(command.passphrase)
@@ -873,7 +871,7 @@ class MainActivity : Activity() {
     }
 
     private fun cleanupAndroidResources() {
-        runOnMainBlocking {
+        runOnMain {
             currentCaptureRequest = null
             publishSession?.close()
             subscribeSession?.close()
@@ -1144,24 +1142,22 @@ class MainActivity : Activity() {
     private fun formatTimestamp(createdAtMs: Long): String =
         SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date(createdAtMs))
 
-    private fun <T> runOnMainBlocking(block: () -> T): T {
+    private fun runOnMain(block: () -> Unit) {
         if (Looper.myLooper() == Looper.getMainLooper()) {
-            return block()
+            block()
+            return
         }
-        val latch = CountDownLatch(1)
-        var result: Result<T>? = null
-        mainHandler.post {
-            result =
+        val posted =
+            mainHandler.post {
                 try {
-                    Result.success(block())
+                    block()
                 } catch (t: Throwable) {
-                    Result.failure(t)
-                } finally {
-                    latch.countDown()
+                    Log.e(logTag, "Main-thread task failed", t)
                 }
+            }
+        if (!posted) {
+            Log.e(logTag, "Failed to post work to the main thread")
         }
-        latch.await(30, TimeUnit.SECONDS)
-        return result!!.getOrThrow()
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
