@@ -61,7 +61,9 @@ class MainActivity : Activity() {
         private const val securePassphrase = "awarebenchpass123"
         private const val tcpProtocol = 6
         private const val ioBufferSize = 256 * 1024
-        private const val commandBlob = "BLOB"
+        private const val commandSet = "SET"
+        private const val commandTrack = "TRACK"
+        private const val commandDone = "DONE"
         private const val commandAck = "ACK"
     }
 
@@ -79,14 +81,17 @@ class MainActivity : Activity() {
     private lateinit var statusView: TextView
     private lateinit var roleView: TextView
     private lateinit var transportView: TextView
-    private lateinit var localBlobView: TextView
-    private lateinit var receivedBlobView: TextView
+    private lateinit var localSummaryView: TextView
+    private lateinit var receivedSummaryView: TextView
     private lateinit var storageView: TextView
+    private lateinit var localTracksView: TextView
+    private lateinit var receivedTracksView: TextView
     private lateinit var logView: TextView
-    private lateinit var seedButton: Button
+    private lateinit var seedSetAButton: Button
+    private lateinit var seedSetBButton: Button
     private lateinit var hostButton: Button
     private lateinit var clientButton: Button
-    private lateinit var sendBlobButton: Button
+    private lateinit var sendSetButton: Button
     private lateinit var clearDataButton: Button
     private lateinit var stopButton: Button
     private lateinit var clearLogButton: Button
@@ -95,8 +100,8 @@ class MainActivity : Activity() {
     private var pendingRole: Role? = null
     private var transportStatus = "Idle"
 
-    private var localBlobInfo: DemoBlobInfo? = null
-    private var lastReceivedBlobInfo: DemoBlobInfo? = null
+    private var localTracks: List<AudioTrackInfo> = emptyList()
+    private var receivedTracks: List<AudioTrackInfo> = emptyList()
 
     private var awareSession: WifiAwareSession? = null
     private var publishSession: PublishDiscoverySession? = null
@@ -130,17 +135,16 @@ class MainActivity : Activity() {
         wifiAwareManager = getSystemService(WIFI_AWARE_SERVICE) as WifiAwareManager
         connectivityManager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
         demoStore = HashtreeDemoStore(this)
-        localBlobInfo = demoStore.currentLocalBlob()
-        lastReceivedBlobInfo = demoStore.lastReceivedBlob()
+        reloadTrackState()
 
         setContentView(buildUi())
         setStatus("Idle")
         updateRoleView()
         updateTransportView()
-        updateBlobViews()
+        updateTrackViews()
         updateControls()
         appendLog(
-            "Increment 1: seed one deterministic blob on the client, connect host/client over Wi-Fi Aware, and send the blob for receiver-side nhash verification.",
+            "Increment 2: seed audio Set A or Set B locally, then send the seeded tracks over Wi-Fi Aware with receiver-side nhash verification.",
         )
     }
 
@@ -177,23 +181,28 @@ class MainActivity : Activity() {
     private fun buildUi(): LinearLayout {
         val padding = (16 * resources.displayMetrics.density).toInt()
 
-        statusView = TextView(this).apply {
-            textSize = 18f
-        }
+        statusView = TextView(this).apply { textSize = 18f }
         roleView = TextView(this)
         transportView = TextView(this)
-        localBlobView = TextView(this)
-        receivedBlobView = TextView(this)
+        localSummaryView = TextView(this)
+        receivedSummaryView = TextView(this)
         storageView = TextView(this)
+        localTracksView = TextView(this).apply { setTextIsSelectable(true) }
+        receivedTracksView = TextView(this).apply { setTextIsSelectable(true) }
 
         val hintView = TextView(this).apply {
             text =
-                "This increment only proves one thing: a real hashtree-addressed blob can move over a Wi-Fi Aware data path. Seed the blob on the client, connect both phones, then tap Send Hashtree Blob."
+                "Seed Set A on one phone or Set B on the other, connect Host and Client over Wi-Fi Aware, then tap Send Seeded Set. This increment only proves seeded audio files can be verified and moved over the Wi-Fi Aware data path."
         }
 
-        seedButton = Button(this).apply {
-            text = "Seed Demo Blob"
-            setOnClickListener { seedDemoBlob() }
+        seedSetAButton = Button(this).apply {
+            text = "Seed Set A"
+            setOnClickListener { seedAudioSet(AudioSetId.SET_A) }
+        }
+
+        seedSetBButton = Button(this).apply {
+            text = "Seed Set B"
+            setOnClickListener { seedAudioSet(AudioSetId.SET_B) }
         }
 
         clearDataButton = Button(this).apply {
@@ -216,9 +225,9 @@ class MainActivity : Activity() {
             setOnClickListener { stopAll("Stopped manually") }
         }
 
-        sendBlobButton = Button(this).apply {
-            text = "Send Hashtree Blob"
-            setOnClickListener { sendHashtreeBlob() }
+        sendSetButton = Button(this).apply {
+            text = "Send Seeded Set"
+            setOnClickListener { sendSeededSet() }
         }
 
         clearLogButton = Button(this).apply {
@@ -232,7 +241,8 @@ class MainActivity : Activity() {
         val seedRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.START
-            addView(seedButton)
+            addView(seedSetAButton)
+            addView(seedSetBButton)
             addView(clearDataButton)
         }
 
@@ -247,7 +257,7 @@ class MainActivity : Activity() {
         val transferRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.START
-            addView(sendBlobButton)
+            addView(sendSetButton)
             addView(clearLogButton)
         }
 
@@ -256,11 +266,7 @@ class MainActivity : Activity() {
         }
 
         val scrollView = ScrollView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                0,
-                1f,
-            )
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
             addView(
                 logView,
                 ViewGroup.LayoutParams(
@@ -276,32 +282,37 @@ class MainActivity : Activity() {
             addView(statusView)
             addView(roleView)
             addView(transportView)
-            addView(localBlobView)
-            addView(receivedBlobView)
+            addView(localSummaryView)
+            addView(receivedSummaryView)
             addView(storageView)
             addView(hintView)
             addView(seedRow)
             addView(roleRow)
             addView(transferRow)
+            addView(localTracksView)
+            addView(receivedTracksView)
             addView(scrollView)
         }
     }
 
-    private fun seedDemoBlob() {
+    private fun seedAudioSet(setId: AudioSetId) {
         if (role != Role.IDLE) {
-            appendLog("Stop Wi-Fi Aware before reseeding the demo blob.")
+            appendLog("Stop Wi-Fi Aware before reseeding audio.")
             return
         }
 
         try {
-            localBlobInfo = demoStore.seedLocalBlob()
-            updateBlobViews()
+            localTracks = demoStore.seedLocalSet(setId)
+            updateTrackViews()
             updateControls()
-            appendLog(
-                "Seeded local demo blob ${localBlobInfo!!.nhash} (${formatByteCount(localBlobInfo!!.sizeBytes)}) at ${localBlobInfo!!.file.absolutePath}",
-            )
+            appendLog("Seeded ${setId.label} with ${localTracks.size} tracks.")
+            localTracks.forEach { track ->
+                appendLog(
+                    "Seeded ${track.id} (${track.title}) nhash=${track.nhash} size=${formatByteCount(track.sizeBytes)}",
+                )
+            }
         } catch (e: Exception) {
-            appendLog("Failed to seed local blob: ${e.message}")
+            appendLog("Failed to seed ${setId.label}: ${e.message}")
         }
     }
 
@@ -311,11 +322,10 @@ class MainActivity : Activity() {
         }
 
         demoStore.clearAll()
-        localBlobInfo = null
-        lastReceivedBlobInfo = null
-        updateBlobViews()
+        reloadTrackState()
+        updateTrackViews()
         updateControls()
-        appendLog("Cleared all demo blob data.")
+        appendLog("Cleared all demo audio data.")
     }
 
     private fun ensurePermissionsAndStart(selectedRole: Role) {
@@ -619,70 +629,98 @@ class MainActivity : Activity() {
         try {
             val input = DataInputStream(BufferedInputStream(socket.getInputStream(), ioBufferSize))
             val output = DataOutputStream(BufferedOutputStream(socket.getOutputStream(), ioBufferSize))
+            var activeSetLabel = "Unknown Set"
 
             while (!socket.isClosed && role == Role.HOST) {
                 val command = try {
                     input.readUTF()
                 } catch (_: EOFException) {
-                    appendLog("Host blob stream closed by client.")
+                    appendLog("Host audio stream closed by client.")
                     break
                 }
 
-                if (command != commandBlob) {
-                    appendLog("Host received unexpected command '$command'. Closing socket.")
-                    break
-                }
+                when (command) {
+                    commandSet -> {
+                        activeSetLabel = input.readUTF()
+                        val trackCount = input.readInt()
+                        appendLog(
+                            "Host receiving Wi-Fi Aware audio $activeSetLabel with $trackCount tracks.",
+                        )
+                    }
 
-                val announcedNhash = input.readUTF()
-                val expectedBytes = input.readLong()
-                if (expectedBytes <= 0L) {
-                    appendLog("Host received invalid blob size $expectedBytes.")
-                    break
-                }
-
-                appendLog(
-                    "Host receiving Wi-Fi Aware hashtree blob $announcedNhash (${formatByteCount(expectedBytes)})",
-                )
-                val tempFile = demoStore.createIncomingTempFile()
-                var remaining = expectedBytes
-
-                FileOutputStream(tempFile).use { fileOutput ->
-                    while (remaining > 0) {
-                        val chunk = min(ioBuffer.size.toLong(), remaining).toInt()
-                        val read = input.read(ioBuffer, 0, chunk)
-                        if (read < 0) {
-                            throw EOFException("Client disconnected mid-transfer.")
+                    commandTrack -> {
+                        val trackId = input.readUTF()
+                        val announcedNhash = input.readUTF()
+                        val expectedBytes = input.readLong()
+                        if (expectedBytes <= 0L) {
+                            appendLog("Host received invalid track size $expectedBytes for $trackId.")
+                            break
                         }
-                        fileOutput.write(ioBuffer, 0, read)
-                        remaining -= read.toLong()
+
+                        appendLog(
+                            "Host receiving track $trackId from $activeSetLabel nhash=$announcedNhash (${formatByteCount(expectedBytes)}) over Wi-Fi Aware",
+                        )
+                        val tempFile = demoStore.createIncomingTempFile(trackId)
+                        var remaining = expectedBytes
+
+                        FileOutputStream(tempFile).use { fileOutput ->
+                            while (remaining > 0) {
+                                val chunk = min(ioBuffer.size.toLong(), remaining).toInt()
+                                val read = input.read(ioBuffer, 0, chunk)
+                                if (read < 0) {
+                                    throw EOFException("Client disconnected mid-track transfer.")
+                                }
+                                fileOutput.write(ioBuffer, 0, read)
+                                remaining -= read.toLong()
+                            }
+                        }
+
+                        val result =
+                            try {
+                                demoStore.verifyAndStoreReceivedTrack(
+                                    tempFile = tempFile,
+                                    trackId = trackId,
+                                    announcedNhash = announcedNhash,
+                                    setLabel = activeSetLabel,
+                                )
+                            } catch (e: Exception) {
+                                tempFile.delete()
+                                StoredTrackResult(
+                                    success = false,
+                                    actualNhash = null,
+                                    track = null,
+                                    alreadyPresent = false,
+                                    message = "Failed to verify received track $trackId: ${e.message}",
+                                )
+                            }
+
+                        if (result.success) {
+                            receivedTracks = demoStore.receivedTracks()
+                            updateTrackViews()
+                        }
+
+                        appendLog(result.message)
+                        output.writeUTF(commandAck)
+                        output.writeBoolean(result.success)
+                        output.writeUTF(result.actualNhash ?: "")
+                        output.writeBoolean(result.alreadyPresent)
+                        output.writeUTF(result.message)
+                        output.flush()
+                    }
+
+                    commandDone -> {
+                        val setLabel = input.readUTF()
+                        val trackCount = input.readInt()
+                        appendLog(
+                            "Host finished receiving Wi-Fi Aware audio $setLabel ($trackCount tracks).",
+                        )
+                    }
+
+                    else -> {
+                        appendLog("Host received unexpected command '$command'. Closing socket.")
+                        break
                     }
                 }
-
-                val result = try {
-                    demoStore.verifyAndStoreReceivedBlob(tempFile, announcedNhash)
-                } catch (e: Exception) {
-                    tempFile.delete()
-                    StoredBlobResult(
-                        success = false,
-                        actualNhash = null,
-                        file = null,
-                        alreadyPresent = false,
-                        message = "Failed to verify received blob: ${e.message}",
-                    )
-                }
-
-                if (result.success) {
-                    lastReceivedBlobInfo = demoStore.lastReceivedBlob()
-                    updateBlobViews()
-                }
-
-                appendLog(result.message)
-                output.writeUTF(commandAck)
-                output.writeBoolean(result.success)
-                output.writeUTF(result.actualNhash ?: "")
-                output.writeBoolean(result.alreadyPresent)
-                output.writeUTF(result.message)
-                output.flush()
             }
         } catch (e: IOException) {
             if (role == Role.HOST) {
@@ -783,7 +821,7 @@ class MainActivity : Activity() {
                 clientOutput = DataOutputStream(BufferedOutputStream(socket.getOutputStream(), ioBufferSize))
                 clientSocketConnecting = false
                 setTransportStatus("Client Wi-Fi Aware TCP socket connected")
-                appendLog("Client Wi-Fi Aware TCP socket connected. Ready to send the seeded hashtree blob.")
+                appendLog("Client Wi-Fi Aware TCP socket connected. Ready to send the seeded set.")
                 updateControls()
             } catch (e: IOException) {
                 clientSocketConnecting = false
@@ -794,24 +832,23 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun sendHashtreeBlob() {
+    private fun sendSeededSet() {
         if (role != Role.CLIENT) {
-            appendLog("Only the client sends the demo blob in increment 1.")
+            appendLog("Only the client sends the seeded set in this increment.")
             return
         }
 
         if (transferInFlight) {
-            appendLog("A blob transfer is already in flight.")
+            appendLog("A set transfer is already in flight.")
             return
         }
 
-        val blob = localBlobInfo ?: demoStore.currentLocalBlob()
-        if (blob == null) {
-            appendLog("Seed the demo blob on the client first.")
+        localTracks = demoStore.currentLocalTracks()
+        if (localTracks.isEmpty()) {
+            appendLog("Seed Set A or Set B on the client first.")
+            updateTrackViews()
             return
         }
-        localBlobInfo = blob
-        updateBlobViews()
 
         val input = clientInput
         val output = clientOutput
@@ -820,46 +857,68 @@ class MainActivity : Activity() {
             return
         }
 
+        val setLabel = localTracks.first().setLabel
         transferInFlight = true
         updateControls()
 
         ioExecutor.execute {
             try {
                 appendLog(
-                    "Client sending Wi-Fi Aware hashtree blob ${blob.nhash} (${formatByteCount(blob.sizeBytes)}) from ${blob.file.absolutePath}",
+                    "Client sending Wi-Fi Aware audio $setLabel with ${localTracks.size} tracks.",
                 )
-                output.writeUTF(commandBlob)
-                output.writeUTF(blob.nhash)
-                output.writeLong(blob.sizeBytes)
-
-                FileInputStream(blob.file).use { fileInput ->
-                    while (true) {
-                        val read = fileInput.read(ioBuffer)
-                        if (read < 0) {
-                            break
-                        }
-                        output.write(ioBuffer, 0, read)
-                    }
-                }
+                output.writeUTF(commandSet)
+                output.writeUTF(setLabel)
+                output.writeInt(localTracks.size)
                 output.flush()
 
-                val ack = input.readUTF()
-                if (ack != commandAck) {
-                    appendLog("Client expected ACK but received '$ack'.")
-                    return@execute
+                for (track in localTracks.sortedBy { it.id }) {
+                    appendLog(
+                        "Client sending ${track.id} (${track.title}) nhash=${track.nhash} size=${formatByteCount(track.sizeBytes)} over Wi-Fi Aware",
+                    )
+                    output.writeUTF(commandTrack)
+                    output.writeUTF(track.id)
+                    output.writeUTF(track.nhash)
+                    output.writeLong(track.sizeBytes)
+
+                    FileInputStream(track.file).use { fileInput ->
+                        while (true) {
+                            val read = fileInput.read(ioBuffer)
+                            if (read < 0) {
+                                break
+                            }
+                            output.write(ioBuffer, 0, read)
+                        }
+                    }
+                    output.flush()
+
+                    val ack = input.readUTF()
+                    if (ack != commandAck) {
+                        appendLog("Client expected ACK but received '$ack'.")
+                        break
+                    }
+
+                    val success = input.readBoolean()
+                    val actualNhash = input.readUTF()
+                    val alreadyPresent = input.readBoolean()
+                    val message = input.readUTF()
+                    appendLog(
+                        "Host reply for ${track.id}: success=$success actualNhash=${actualNhash.ifBlank { "n/a" }} alreadyPresent=$alreadyPresent",
+                    )
+                    appendLog(message)
+                    if (!success) {
+                        appendLog("Stopping set transfer because host rejected ${track.id}.")
+                        break
+                    }
                 }
 
-                val success = input.readBoolean()
-                val actualNhash = input.readUTF()
-                val alreadyPresent = input.readBoolean()
-                val message = input.readUTF()
-                appendLog(
-                    "Host reply over Wi-Fi Aware: success=$success actualNhash=${actualNhash.ifBlank { "n/a" }} alreadyPresent=$alreadyPresent",
-                )
-                appendLog(message)
+                output.writeUTF(commandDone)
+                output.writeUTF(setLabel)
+                output.writeInt(localTracks.size)
+                output.flush()
+                appendLog("Client finished sending Wi-Fi Aware audio $setLabel.")
             } catch (e: IOException) {
-                appendLog("Blob transfer failed: ${e.message}")
-                setTransportStatus("Blob transfer failed")
+                appendLog("Set transfer failed: ${e.message}")
+                setTransportStatus("Set transfer failed")
                 closeClientSocket()
             } finally {
                 transferInFlight = false
@@ -985,39 +1044,54 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun updateBlobViews() {
+    private fun updateTrackViews() {
         onMain {
-            val localBlob = localBlobInfo
-            localBlobView.text = if (localBlob == null) {
-                "Local blob: none seeded"
-            } else {
-                "Local blob: ${localBlob.nhash} (${formatByteCount(localBlob.sizeBytes)})"
-            }
-
-            val receivedBlob = lastReceivedBlobInfo
-            receivedBlobView.text = if (receivedBlob == null) {
-                "Last received blob: none"
-            } else {
-                "Last received blob: ${receivedBlob.nhash} (${formatByteCount(receivedBlob.sizeBytes)})"
-            }
-
+            val localSetLabel = localTracks.firstOrNull()?.setLabel ?: "none"
+            localSummaryView.text = "Local set: $localSetLabel (${localTracks.size} tracks)"
+            receivedSummaryView.text = "Received tracks: ${receivedTracks.size}"
             storageView.text = "Demo storage: ${formatByteCount(demoStore.totalStorageBytes())}"
+
+            localTracksView.text =
+                if (localTracks.isEmpty()) {
+                    "Local tracks:\nnone"
+                } else {
+                    "Local tracks:\n" + formatTrackList(localTracks)
+                }
+
+            receivedTracksView.text =
+                if (receivedTracks.isEmpty()) {
+                    "Received tracks:\nnone"
+                } else {
+                    "Received tracks:\n" + formatTrackList(receivedTracks)
+                }
         }
     }
 
     private fun updateControls() {
         onMain {
-            seedButton.isEnabled = role == Role.IDLE
+            seedSetAButton.isEnabled = role == Role.IDLE
+            seedSetBButton.isEnabled = role == Role.IDLE
             clearDataButton.isEnabled = !transferInFlight
             hostButton.isEnabled = role == Role.IDLE
             clientButton.isEnabled = role == Role.IDLE
             stopButton.isEnabled = role != Role.IDLE
-            sendBlobButton.isEnabled =
+            sendSetButton.isEnabled =
                 role == Role.CLIENT &&
                 clientSocket != null &&
                 !clientSocketConnecting &&
                 !transferInFlight &&
-                localBlobInfo != null
+                localTracks.isNotEmpty()
+        }
+    }
+
+    private fun reloadTrackState() {
+        localTracks = demoStore.currentLocalTracks()
+        receivedTracks = demoStore.receivedTracks()
+    }
+
+    private fun formatTrackList(tracks: List<AudioTrackInfo>): String {
+        return tracks.joinToString("\n") { track ->
+            "${track.id} · ${track.title} · ${track.nhash.takeLast(10)}"
         }
     }
 
@@ -1027,7 +1101,7 @@ class MainActivity : Activity() {
         val line = "[$timestamp] $message"
         onMain {
             logLines.addLast(line)
-            while (logLines.size > 300) {
+            while (logLines.size > 400) {
                 logLines.removeFirst()
             }
             renderLog()
