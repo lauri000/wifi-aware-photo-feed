@@ -306,13 +306,20 @@ class MainActivity : ComponentActivity(), AndroidNearbyController.Host {
         val headerTabs =
             LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.END or Gravity.CENTER_VERTICAL
                 addView(
                     feedTabButton,
-                    LinearLayout.LayoutParams(0, dp(52), 1f),
+                    LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        dp(52),
+                    ),
                 )
                 addView(
                     settingsTabButton,
-                    LinearLayout.LayoutParams(0, dp(52), 1f).apply {
+                    LinearLayout.LayoutParams(
+                        dp(52),
+                        dp(52),
+                    ).apply {
                         marginStart = dp(6)
                     },
                 )
