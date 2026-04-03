@@ -286,7 +286,8 @@ class MainActivity : ComponentActivity(), AndroidNearbyController.Host {
         feedTabButton = buildHeaderTabButton("Feed").apply {
             setOnClickListener { controller.dispatchUiAction(UiAction.SwitchPage(UiPage.FEED)) }
         }
-        settingsTabButton = buildHeaderTabButton("Settings").apply {
+        settingsTabButton = buildHeaderTabButton("\u2699").apply {
+            contentDescription = "Settings"
             setOnClickListener { controller.dispatchUiAction(UiAction.SwitchPage(UiPage.SETTINGS)) }
         }
         takePhotoButton = buildPrimaryButton("Take Photo").apply {
@@ -943,7 +944,7 @@ class MainActivity : ComponentActivity(), AndroidNearbyController.Host {
             isAllCaps = false
             isSingleLine = true
             includeFontPadding = false
-            textSize = 14f
+            textSize = if (text == "\u2699") 18f else 14f
             setTypeface(Typeface.SANS_SERIF, Typeface.BOLD)
             gravity = Gravity.CENTER
             setPadding(dp(16), 0, dp(16), 0)

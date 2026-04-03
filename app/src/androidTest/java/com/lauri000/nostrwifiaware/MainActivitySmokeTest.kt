@@ -30,7 +30,7 @@ class MainActivitySmokeTest {
                     findTextView(root, label)?.isShown == true
                 },
             )
-            findTextView(root, "Settings")?.performClick()
+            findViewByContentDescription(root, "Settings")?.performClick()
         }
 
         Thread.sleep(200)
@@ -61,6 +61,24 @@ class MainActivitySmokeTest {
         if (root is ViewGroup) {
             for (index in 0 until root.childCount) {
                 val match = findTextView(root.getChildAt(index), text)
+                if (match != null) {
+                    return match
+                }
+            }
+        }
+        return null
+    }
+
+    private fun findViewByContentDescription(
+        root: View,
+        contentDescription: String,
+    ): View? {
+        if (root.contentDescription?.toString() == contentDescription) {
+            return root
+        }
+        if (root is ViewGroup) {
+            for (index in 0 until root.childCount) {
+                val match = findViewByContentDescription(root.getChildAt(index), contentDescription)
                 if (match != null) {
                     return match
                 }
