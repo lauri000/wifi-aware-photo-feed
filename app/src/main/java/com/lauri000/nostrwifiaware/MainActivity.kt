@@ -398,10 +398,17 @@ class MainActivity : ComponentActivity(), AndroidNearbyController.Host {
                 )
             }
 
+        val feedIntroSection =
+            LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(contentPadding, 0, contentPadding, 0)
+                addView(feedIntroCard)
+            }
+
         feedPage =
             LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
-                addView(feedIntroCard)
+                addView(feedIntroSection)
                 addView(spacer(dp(12)))
                 addView(feedEmptyView)
                 addView(feedContainer)
@@ -470,7 +477,7 @@ class MainActivity : ComponentActivity(), AndroidNearbyController.Host {
         val feedScrollContent =
             LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
-                setPadding(contentPadding, contentPadding, contentPadding, contentPadding)
+                setPadding(0, contentPadding, 0, contentPadding)
                 addView(feedPage)
             }
 
@@ -714,40 +721,47 @@ class MainActivity : ComponentActivity(), AndroidNearbyController.Host {
             }
         val image =
             ImageView(this).apply {
-                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(280))
+                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(520))
                 scaleType = ImageView.ScaleType.CENTER_CROP
-                background = roundedFill(parseColor("#f3f4f6"), parseColor("#e5e7eb"), dp(24))
-                setImageBitmap(loadPreviewBitmap(File(item.renderCachePath), 1080, 720))
+                background = roundedFill(parseColor("#f3f4f6"), parseColor("#e5e7eb"), 0)
+                setImageBitmap(loadPreviewBitmap(File(item.renderCachePath), 1080, 1600))
                 clipToOutline = true
             }
 
-        return surfaceCard().apply {
-            addView(buildTag(item.sourceLabel.uppercase(Locale.US), "#fff7ed", colorToHex(sourceAccent), sourceAccent))
-            addView(spacer(dp(12)))
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = roundedFill(parseColor("#ffffff"), parseColor("#e5e7eb"), 0)
             addView(image)
-            addView(spacer(dp(12)))
             addView(
-                TextView(this@MainActivity).apply {
-                    text = if (item.isLocal) "Me" else "Received"
-                    textSize = 20f
-                    setTextColor(parseColor("#111827"))
-                    setTypeface(Typeface.SERIF, Typeface.BOLD)
+                LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(dp(20), dp(16), dp(20), dp(18))
+                    addView(buildTag(item.sourceLabel.uppercase(Locale.US), "#fff7ed", colorToHex(sourceAccent), sourceAccent))
+                    addView(spacer(dp(12)))
+                    addView(
+                        TextView(this@MainActivity).apply {
+                            text = if (item.isLocal) "Me" else "Received"
+                            textSize = 20f
+                            setTextColor(parseColor("#111827"))
+                            setTypeface(Typeface.SERIF, Typeface.BOLD)
+                        },
+                    )
+                    addView(
+                        TextView(this@MainActivity).apply {
+                            text = "${formatTimestamp(item.createdAtMs)}  ·  ${formatByteCount(item.sizeBytes.toLong())}"
+                            textSize = 13f
+                            setTextColor(parseColor("#6b7280"))
+                            setPadding(0, dp(6), 0, 0)
+                        },
+                    )
+                    addView(spacer(dp(10)))
+                    addView(
+                        tagRow(
+                            buildTag(item.sourceLabel.uppercase(Locale.US), "#f8fafc", "#cbd5e1", parseColor("#475569")),
+                            buildTag("cid ${item.photoCid.takeLast(12)}", "#f8fafc", "#cbd5e1", parseColor("#475569")),
+                        ),
+                    )
                 },
-            )
-            addView(
-                TextView(this@MainActivity).apply {
-                    text = "${formatTimestamp(item.createdAtMs)}  ·  ${formatByteCount(item.sizeBytes.toLong())}"
-                    textSize = 13f
-                    setTextColor(parseColor("#6b7280"))
-                    setPadding(0, dp(6), 0, 0)
-                },
-            )
-            addView(spacer(dp(10)))
-            addView(
-                tagRow(
-                    buildTag(item.sourceLabel.uppercase(Locale.US), "#f8fafc", "#cbd5e1", parseColor("#475569")),
-                    buildTag("cid ${item.photoCid.takeLast(12)}", "#f8fafc", "#cbd5e1", parseColor("#475569")),
-                ),
             )
         }
     }
@@ -816,7 +830,7 @@ class MainActivity : ComponentActivity(), AndroidNearbyController.Host {
         TextView(this).apply {
             setTextColor(parseColor("#6b7280"))
             textSize = 14f
-            setPadding(0, dp(8), 0, 0)
+            setPadding(dp(20), dp(8), dp(20), 0)
         }
 
     private fun surfaceCard(
