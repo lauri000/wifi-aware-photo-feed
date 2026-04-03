@@ -305,8 +305,6 @@ class MainActivity : ComponentActivity(), AndroidNearbyController.Host {
         val headerTabs =
             LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
-                background = roundedFill(parseColor("#eef2f7"), parseColor("#d7dde6"), dp(16))
-                setPadding(dp(4), dp(4), dp(4), dp(4))
                 addView(
                     feedTabButton,
                     LinearLayout.LayoutParams(0, dp(52), 1f),
