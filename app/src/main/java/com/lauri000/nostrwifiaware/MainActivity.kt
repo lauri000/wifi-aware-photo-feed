@@ -29,6 +29,8 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import uniffi.nearby_hashtree_ffi.ControlsEnabled
 import uniffi.nearby_hashtree_ffi.FeedItem
 import uniffi.nearby_hashtree_ffi.UiAction
@@ -260,6 +262,8 @@ class MainActivity : ComponentActivity(), AndroidNearbyController.Host {
 
     private fun buildUi(): View {
         val contentPadding = dp(20)
+        val headerTopPadding = dp(32)
+        val headerBottomPadding = dp(14)
 
         headerPrimaryStatsView = buildHeaderStatsText(14f, parseColor("#111827"), Typeface.BOLD)
         headerSecondaryStatsView = buildHeaderStatsText(12f, parseColor("#4b5563"), Typeface.NORMAL)
@@ -317,7 +321,7 @@ class MainActivity : ComponentActivity(), AndroidNearbyController.Host {
             LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 setBackgroundColor(parseColor("#fbfaf7"))
-                setPadding(contentPadding, dp(16), contentPadding, dp(14))
+                setPadding(contentPadding, headerTopPadding, contentPadding, headerBottomPadding)
                 addView(
                     LinearLayout(this@MainActivity).apply {
                         orientation = LinearLayout.HORIZONTAL
@@ -604,6 +608,17 @@ class MainActivity : ComponentActivity(), AndroidNearbyController.Host {
                     FrameLayout.LayoutParams.MATCH_PARENT,
                 ),
             )
+            ViewCompat.setOnApplyWindowInsetsListener(this) { _, windowInsets ->
+                val systemBars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
+                headerContainer.setPadding(
+                    contentPadding,
+                    headerTopPadding + systemBars.top,
+                    contentPadding,
+                    headerBottomPadding,
+                )
+                windowInsets
+            }
+            ViewCompat.requestApplyInsets(this)
         }
     }
 
