@@ -25,6 +25,11 @@ class MainActivitySmokeTest {
             val root = activity.window.decorView
             assertNotNull(findTextView(root, "LocalGram"))
             assertTrue(findTextView(root, "Take Photo")?.isShown == true)
+            assertTrue(
+                listOf("Connect", "Disconnect", "Connecting...").any { label ->
+                    findTextView(root, label)?.isShown == true
+                },
+            )
             findTextView(root, "Settings")?.performClick()
         }
 
@@ -34,11 +39,6 @@ class MainActivitySmokeTest {
         activityRule.scenario.onActivity { activity ->
             val root = activity.window.decorView
             assertTrue(findTextView(root, "Transport Log")?.isShown == true)
-            assertTrue(
-                listOf("Connect", "Disconnect", "Connecting...").any { label ->
-                    findTextView(root, label)?.isShown == true
-                },
-            )
             findTextView(root, "Feed")?.performClick()
         }
 

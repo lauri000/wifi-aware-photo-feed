@@ -370,13 +370,10 @@ class MainActivity : ComponentActivity(), AndroidNearbyController.Host {
             surfaceCard().apply {
                 addView(
                     LinearLayout(this@MainActivity).apply {
-                        orientation = LinearLayout.HORIZONTAL
-                        gravity = Gravity.CENTER_VERTICAL
+                        orientation = LinearLayout.VERTICAL
                         addView(
                             LinearLayout(this@MainActivity).apply {
                                 orientation = LinearLayout.VERTICAL
-                                layoutParams =
-                                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
                                 addView(
                                     TextView(this@MainActivity).apply {
                                         text = "Latest photos"
@@ -395,7 +392,28 @@ class MainActivity : ComponentActivity(), AndroidNearbyController.Host {
                                 )
                             },
                         )
-                        addView(takePhotoButton)
+                        addView(spacer(dp(14)))
+                        addView(
+                            LinearLayout(this@MainActivity).apply {
+                                orientation = LinearLayout.HORIZONTAL
+                                gravity = Gravity.END or Gravity.CENTER_VERTICAL
+                                addView(
+                                    nearbyToggleButton,
+                                    LinearLayout.LayoutParams(
+                                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                                    ),
+                                )
+                                addView(horizontalSpacer(dp(10)))
+                                addView(
+                                    takePhotoButton,
+                                    LinearLayout.LayoutParams(
+                                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                                    ),
+                                )
+                            },
+                        )
                     },
                 )
             }
@@ -420,29 +438,6 @@ class MainActivity : ComponentActivity(), AndroidNearbyController.Host {
             LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 visibility = View.GONE
-                addView(
-                    surfaceCard().apply {
-                        addView(
-                            TextView(this@MainActivity).apply {
-                                text = "Nearby sync"
-                                textSize = 20f
-                                setTypeface(Typeface.SERIF, Typeface.BOLD)
-                                setTextColor(parseColor("#111827"))
-                            },
-                        )
-                        addView(spacer(dp(8)))
-                        addView(
-                            TextView(this@MainActivity).apply {
-                                text = "Stay connected to merge nearby photos automatically. New captures sync as soon as they are stored."
-                                textSize = 14f
-                                setTextColor(parseColor("#6b7280"))
-                            },
-                        )
-                        addView(spacer(dp(14)))
-                        addView(nearbyToggleButton)
-                    },
-                )
-                addView(spacer(dp(12)))
                 addView(
                     surfaceCard().apply {
                         addView(
