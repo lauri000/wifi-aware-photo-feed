@@ -43,6 +43,7 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:1.4.2")
     implementation("androidx.camera:camera-view:1.4.2")
     implementation("androidx.core:core-ktx:1.16.0")
+    implementation("androidx.exifinterface:exifinterface:1.3.7")
     implementation("net.java.dev.jna:jna:5.13.0@aar")
 
     androidTestImplementation("androidx.test:runner:1.6.2")

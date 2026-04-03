@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
+import android.graphics.Matrix
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
@@ -31,6 +32,7 @@ import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.exifinterface.media.ExifInterface
 import uniffi.nearby_hashtree_ffi.ControlsEnabled
 import uniffi.nearby_hashtree_ffi.FeedItem
 import uniffi.nearby_hashtree_ffi.UiAction
@@ -785,11 +787,63 @@ class MainActivity : ComponentActivity(), AndroidNearbyController.Host {
     ): Bitmap? {
         val cacheKey = "${file.absolutePath}:${file.lastModified()}:$targetWidth:$targetHeight"
         previewBitmapCache.get(cacheKey)?.let { return it }
-        val bitmap = decodePreviewBitmap(file, targetWidth, targetHeight)
+        val bitmap = decodePreviewBitmap(file, targetWidth, targetHeight)?.let {
+            applyExifOrientation(file, it)
+        }
         if (bitmap != null) {
             previewBitmapCache.put(cacheKey, bitmap)
         }
         return bitmap
+    }
+
+    private fun applyExifOrientation(
+        file: File,
+        bitmap: Bitmap,
+    ): Bitmap {
+        val orientation =
+            try {
+                ExifInterface(file.absolutePath).getAttributeInt(
+                    ExifInterface.TAG_ORIENTATION,
+                    ExifInterface.ORIENTATION_NORMAL,
+                )
+            } catch (_: Exception) {
+                ExifInterface.ORIENTATION_NORMAL
+            }
+
+        if (orientation == ExifInterface.ORIENTATION_NORMAL || orientation == ExifInterface.ORIENTATION_UNDEFINED) {
+            return bitmap
+        }
+
+        val matrix = Matrix()
+        when (orientation) {
+            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.setScale(-1f, 1f)
+            ExifInterface.ORIENTATION_ROTATE_180 -> matrix.setRotate(180f)
+            ExifInterface.ORIENTATION_FLIP_VERTICAL -> {
+                matrix.setRotate(180f)
+                matrix.postScale(-1f, 1f)
+            }
+            ExifInterface.ORIENTATION_TRANSPOSE -> {
+                matrix.setRotate(90f)
+                matrix.postScale(-1f, 1f)
+            }
+            ExifInterface.ORIENTATION_ROTATE_90 -> matrix.setRotate(90f)
+            ExifInterface.ORIENTATION_TRANSVERSE -> {
+                matrix.setRotate(-90f)
+                matrix.postScale(-1f, 1f)
+            }
+            ExifInterface.ORIENTATION_ROTATE_270 -> matrix.setRotate(-90f)
+            else -> return bitmap
+        }
+
+        return try {
+            Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true).also { rotated ->
+                if (rotated != bitmap) {
+                    bitmap.recycle()
+                }
+            }
+        } catch (_: Exception) {
+            bitmap
+        }
     }
 
     private fun computeSampleSize(
