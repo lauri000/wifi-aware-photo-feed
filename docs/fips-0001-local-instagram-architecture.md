@@ -1,4 +1,4 @@
-# FIPS-0001: Local Instagram Architecture
+# FIPS-0001: LocalGram Architecture
 
 Status: Informational  
 Version: 2  

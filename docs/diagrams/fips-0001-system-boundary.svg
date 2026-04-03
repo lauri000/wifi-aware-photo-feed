@@ -20,7 +20,7 @@
   </defs>
 
   <rect class="bg" x="0" y="0" width="980" height="520"/>
-  <text class="title" x="40" y="50">Local Instagram Architecture Boundary</text>
+  <text class="title" x="40" y="50">LocalGram Architecture Boundary</text>
 
   <rect class="frame" x="40" y="80" width="900" height="390"/>
 

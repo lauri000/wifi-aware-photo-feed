@@ -24,7 +24,7 @@
     <application
         android:name=".NearbyApp"
         android:allowBackup="true"
-        android:label="Local Instagram"
+        android:label="LocalGram"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <activity

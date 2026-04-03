@@ -203,10 +203,6 @@ impl PhotoStore {
             .and_then(|root| root.map(|cid| encode_cid(&cid)).transpose())
     }
 
-    pub fn has_any_photos(&self) -> Result<bool, NearbyHashtreeError> {
-        Ok(!self.list_stored_photos()?.is_empty())
-    }
-
     pub fn feed_items(&self) -> Result<Vec<FeedItem>, NearbyHashtreeError> {
         let mut photos = self.list_stored_photos()?;
         photos.sort_by_key(|photo| Reverse(photo.created_at_ms));
@@ -218,12 +214,9 @@ impl PhotoStore {
                 Ok(FeedItem {
                     id: photo.id.clone(),
                     source_label: if photo.is_local {
-                        "Taken Here".to_string()
+                        "Me".to_string()
                     } else {
-                        format!(
-                            "Nearby from {}",
-                            short_device_id(&photo.source_device_id)
-                        )
+                        "Received".to_string()
                     },
                     source_device_id: photo.source_device_id,
                     created_at_ms: photo.created_at_ms,
@@ -688,14 +681,6 @@ fn extension_for_mime_type(mime_type: &str) -> &'static str {
 
 fn safe_cache_key(photo_cid: &str) -> String {
     photo_cid.replace(':', "_")
-}
-
-fn short_device_id(device_id: &str) -> String {
-    if device_id.len() > 10 {
-        device_id[device_id.len() - 10..].to_string()
-    } else {
-        device_id.to_string()
-    }
 }
 
 fn short_nhash(nhash: &str) -> String {

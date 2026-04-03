@@ -139,7 +139,7 @@ impl AppCore {
             inbound_decoders: HashMap::new(),
         };
         state.log(
-            "Local Instagram loaded. Photos are persisted as hashtree blocks and synced by root + block hash over Wi-Fi Aware.",
+            "LocalGram loaded. Photos are persisted as hashtree blocks and synced by root + block hash over Wi-Fi Aware.",
         );
         if recovered > 0 {
             state.log(&format!(
@@ -665,23 +665,18 @@ impl CoreState {
 
         Ok(ViewState {
             page: self.page.clone(),
-            status_text: format!("STATUS  {}", self.status_text),
-            mode_text: format!("MODE  {}", self.role_label()),
-            link_text: format!("LINK  {} nearby · {} linked", self.peers.len(), connected_peers),
-            storage_text: format!("STORAGE  {}", format_byte_count(storage_bytes)),
-            capture_queue_text: format!("CAMERA  {}", self.capture_status_text()),
-            sync_status_text: format!("SYNC  {} active · {} queued", in_flight_syncs, queued_syncs),
-            last_sync_error_text: format!(
-                "LAST ERROR  {}",
-                self.last_sync_error
-                    .clone()
-                    .unwrap_or_else(|| "None".to_string())
-            ),
-            local_summary_text: format!("Your photos: {}  ·  Stored as local feed blocks", local_count),
-            nearby_summary_text: format!(
-                "Received nearby: {}  ·  Content-addressed merge",
-                nearby_count
-            ),
+            status_text: self.status_text.clone(),
+            mode_text: self.role_label().to_string(),
+            link_text: format!("{} nearby · {} linked", self.peers.len(), connected_peers),
+            storage_text: format_byte_count(storage_bytes),
+            capture_queue_text: self.capture_status_text(),
+            sync_status_text: format!("{} active · {} queued", in_flight_syncs, queued_syncs),
+            last_sync_error_text: self
+                .last_sync_error
+                .clone()
+                .unwrap_or_else(|| "No sync errors".to_string()),
+            local_summary_text: format!("Me {}", local_count),
+            nearby_summary_text: format!("Received {}", nearby_count),
             controls_enabled: ControlsEnabled {
                 take_photo: true,
                 toggle_nearby: !self.pending_start_nearby,

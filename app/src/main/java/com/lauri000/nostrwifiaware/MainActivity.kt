@@ -54,19 +54,13 @@ class MainActivity : ComponentActivity(), AndroidNearbyController.Host {
 
     private lateinit var controller: AndroidNearbyController
 
-    private lateinit var statusView: TextView
-    private lateinit var modeView: TextView
-    private lateinit var transportView: TextView
-    private lateinit var storageView: TextView
-    private lateinit var captureQueueView: TextView
-    private lateinit var syncStatusView: TextView
-    private lateinit var lastErrorView: TextView
-    private lateinit var localSummaryFeedView: TextView
-    private lateinit var nearbySummaryFeedView: TextView
-    private lateinit var localSummarySettingsView: TextView
-    private lateinit var nearbySummarySettingsView: TextView
-    private lateinit var pageConfigButton: Button
-    private lateinit var settingsBackButton: Button
+    private lateinit var headerPrimaryStatsView: TextView
+    private lateinit var headerSecondaryStatsView: TextView
+    private lateinit var headerErrorView: TextView
+    private lateinit var feedTabButton: Button
+    private lateinit var settingsTabButton: Button
+    private lateinit var feedScrollView: ScrollView
+    private lateinit var settingsScrollView: ScrollView
     private lateinit var configPage: LinearLayout
     private lateinit var feedPage: LinearLayout
     private lateinit var takePhotoButton: Button
@@ -265,23 +259,17 @@ class MainActivity : ComponentActivity(), AndroidNearbyController.Host {
     }
 
     private fun buildUi(): View {
-        val contentPadding = dp(18)
-        val sectionSpacing = dp(18)
+        val contentPadding = dp(20)
 
-        statusView = buildStatPill()
-        modeView = buildStatPill()
-        transportView = buildStatPill()
-        storageView = buildStatPill()
-        captureQueueView = buildStatPill()
-        syncStatusView = buildStatPill()
-        lastErrorView = buildBodyText().apply { setTextColor(parseColor("#fda4af")) }
-        localSummaryFeedView = buildBodyText()
-        nearbySummaryFeedView = buildBodyText()
-        localSummarySettingsView = buildBodyText()
-        nearbySummarySettingsView = buildBodyText()
+        headerPrimaryStatsView = buildHeaderStatsText(14f, parseColor("#111827"), Typeface.BOLD)
+        headerSecondaryStatsView = buildHeaderStatsText(12f, parseColor("#4b5563"), Typeface.NORMAL)
+        headerErrorView =
+            buildHeaderStatsText(12f, parseColor("#b91c1c"), Typeface.NORMAL).apply {
+                visibility = View.GONE
+            }
         logView =
             TextView(this).apply {
-                setTextColor(parseColor("#b7c4da"))
+                setTextColor(parseColor("#334155"))
                 textSize = 12f
                 setTextIsSelectable(true)
                 setTypeface(Typeface.MONOSPACE)
@@ -289,92 +277,47 @@ class MainActivity : ComponentActivity(), AndroidNearbyController.Host {
         feedContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         feedEmptyView = buildEmptyText()
 
-        pageConfigButton = buildGhostButton("Settings").apply {
-            setOnClickListener { controller.dispatchUiAction(UiAction.SwitchPage(UiPage.SETTINGS)) }
-        }
-        settingsBackButton = buildGhostButton("Back to Feed").apply {
+        feedTabButton = buildHeaderTabButton("Feed").apply {
             setOnClickListener { controller.dispatchUiAction(UiAction.SwitchPage(UiPage.FEED)) }
         }
-        takePhotoButton = buildAccentButton("Take Photo", "#f97316", "#fb7185").apply {
+        settingsTabButton = buildHeaderTabButton("Settings").apply {
+            setOnClickListener { controller.dispatchUiAction(UiAction.SwitchPage(UiPage.SETTINGS)) }
+        }
+        takePhotoButton = buildPrimaryButton("Take Photo").apply {
             setOnClickListener { controller.dispatchUiAction(UiAction.TakePhotoRequested) }
         }
-        nearbyToggleButton = buildAccentButton("Connect", "#0ea5e9", "#22c55e").apply {
+        nearbyToggleButton = buildPrimaryButton("Connect").apply {
             setOnClickListener { controller.dispatchUiAction(UiAction.ToggleNearbyRequested) }
         }
-        clearDataButton = buildMutedButton("Clear Data").apply {
+        clearDataButton = buildSecondaryButton("Clear Data").apply {
             setOnClickListener { controller.dispatchUiAction(UiAction.ClearDemoDataRequested) }
         }
-        clearLogButton = buildGhostButton("Clear Log").apply {
+        clearLogButton = buildSecondaryButton("Clear Log").apply {
             setOnClickListener { controller.dispatchUiAction(UiAction.ClearLogRequested) }
         }
 
-        val headerCard =
-            cardContainer(
-                colors = intArrayOf(parseColor("#17120f"), parseColor("#0d1220")),
-                strokeColor = parseColor("#6b3416"),
-                radiusDp = 34,
-            ).apply {
+        val headerTabs =
+            LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                background = roundedFill(parseColor("#eef2f7"), parseColor("#d7dde6"), dp(16))
+                setPadding(dp(4), dp(4), dp(4), dp(4))
                 addView(
-                    LinearLayout(this@MainActivity).apply {
-                        orientation = LinearLayout.HORIZONTAL
-                        gravity = Gravity.CENTER_VERTICAL
-                        addView(
-                            LinearLayout(this@MainActivity).apply {
-                                orientation = LinearLayout.VERTICAL
-                                layoutParams =
-                                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-                                addView(buildTag("LOCAL PHOTO MESH", "#2b170d", "#8a4b1c"))
-                                addView(spacer(dp(12)))
-                                addView(
-                                    TextView(this@MainActivity).apply {
-                                        text = "Local Instagram"
-                                        textSize = 34f
-                                        setTextColor(Color.WHITE)
-                                        setTypeface(Typeface.SERIF, Typeface.BOLD)
-                                    },
-                                )
-                                addView(spacer(dp(10)))
-                                addView(
-                                    TextView(this@MainActivity).apply {
-                                        text = "Take a photo, keep it in your hashtree feed, and let nearby phones merge it automatically."
-                                        textSize = 14f
-                                        setTextColor(parseColor("#d8dfec"))
-                                    },
-                                )
-                            },
-                        )
-                        addView(pageConfigButton)
+                    feedTabButton,
+                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
+                )
+                addView(
+                    settingsTabButton,
+                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                        marginStart = dp(6)
                     },
                 )
             }
 
-        val statusGrid =
+        val headerContainer =
             LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
-                addView(
-                    statRow(
-                        statusView,
-                        modeView,
-                    ),
-                )
-                addView(spacer(dp(10)))
-                addView(
-                    statRow(
-                        transportView,
-                        storageView,
-                    ),
-                )
-                addView(spacer(dp(10)))
-                addView(
-                    statRow(
-                        captureQueueView,
-                        syncStatusView,
-                    ),
-                )
-            }
-
-        val feedHeaderCard =
-            cardContainer().apply {
+                setBackgroundColor(parseColor("#fbfaf7"))
+                setPadding(contentPadding, dp(16), contentPadding, dp(14))
                 addView(
                     LinearLayout(this@MainActivity).apply {
                         orientation = LinearLayout.HORIZONTAL
@@ -386,16 +329,64 @@ class MainActivity : ComponentActivity(), AndroidNearbyController.Host {
                                     LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
                                 addView(
                                     TextView(this@MainActivity).apply {
-                                        text = "Your feed"
+                                        text = "LocalGram"
+                                        textSize = 28f
+                                        setTextColor(parseColor("#111827"))
+                                        setTypeface(Typeface.SERIF, Typeface.BOLD)
+                                    },
+                                )
+                            },
+                        )
+                        addView(headerTabs)
+                    },
+                )
+                addView(spacer(dp(10)))
+                addView(headerPrimaryStatsView)
+                addView(spacer(dp(4)))
+                addView(headerSecondaryStatsView)
+                addView(spacer(dp(4)))
+                addView(headerErrorView)
+                addView(
+                    View(this@MainActivity).apply {
+                        setBackgroundColor(parseColor("#e5e7eb"))
+                        layoutParams =
+                            LinearLayout.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                dp(1),
+                            ).apply {
+                                topMargin = dp(14)
+                            }
+                    },
+                )
+            }
+
+        val feedIntroCard =
+            surfaceCard().apply {
+                addView(
+                    LinearLayout(this@MainActivity).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        gravity = Gravity.CENTER_VERTICAL
+                        addView(
+                            LinearLayout(this@MainActivity).apply {
+                                orientation = LinearLayout.VERTICAL
+                                layoutParams =
+                                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                                addView(
+                                    TextView(this@MainActivity).apply {
+                                        text = "Latest photos"
                                         textSize = 22f
                                         setTypeface(Typeface.SERIF, Typeface.BOLD)
-                                        setTextColor(Color.WHITE)
+                                        setTextColor(parseColor("#111827"))
                                     },
                                 )
                                 addView(spacer(dp(6)))
-                                addView(localSummaryFeedView)
-                                addView(spacer(dp(4)))
-                                addView(nearbySummaryFeedView)
+                                addView(
+                                    TextView(this@MainActivity).apply {
+                                        text = "From me and nearby, newest first."
+                                        textSize = 14f
+                                        setTextColor(parseColor("#6b7280"))
+                                    },
+                                )
                             },
                         )
                         addView(takePhotoButton)
@@ -406,11 +397,7 @@ class MainActivity : ComponentActivity(), AndroidNearbyController.Host {
         feedPage =
             LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
-                addView(headerCard)
-                addView(spacer(sectionSpacing))
-                addView(statusGrid)
-                addView(spacer(sectionSpacing))
-                addView(feedHeaderCard)
+                addView(feedIntroCard)
                 addView(spacer(dp(12)))
                 addView(feedEmptyView)
                 addView(feedContainer)
@@ -421,46 +408,39 @@ class MainActivity : ComponentActivity(), AndroidNearbyController.Host {
                 orientation = LinearLayout.VERTICAL
                 visibility = View.GONE
                 addView(
-                    cardContainer().apply {
+                    surfaceCard().apply {
                         addView(
-                            LinearLayout(this@MainActivity).apply {
-                                orientation = LinearLayout.HORIZONTAL
-                                gravity = Gravity.CENTER_VERTICAL
-                                addView(
-                                    LinearLayout(this@MainActivity).apply {
-                                        orientation = LinearLayout.VERTICAL
-                                        layoutParams =
-                                            LinearLayout.LayoutParams(
-                                                0,
-                                                ViewGroup.LayoutParams.WRAP_CONTENT,
-                                                1f,
-                                            )
-                                        addView(
-                                            TextView(this@MainActivity).apply {
-                                                text = "Settings"
-                                                textSize = 24f
-                                                setTypeface(Typeface.SERIF, Typeface.BOLD)
-                                                setTextColor(Color.WHITE)
-                                            },
-                                        )
-                                        addView(spacer(dp(8)))
-                                        addView(localSummarySettingsView)
-                                        addView(spacer(dp(4)))
-                                        addView(nearbySummarySettingsView)
-                                        addView(spacer(dp(8)))
-                                        addView(lastErrorView)
-                                    },
-                                )
-                                addView(settingsBackButton)
+                            TextView(this@MainActivity).apply {
+                                text = "Nearby sync"
+                                textSize = 20f
+                                setTypeface(Typeface.SERIF, Typeface.BOLD)
+                                setTextColor(parseColor("#111827"))
                             },
                         )
+                        addView(spacer(dp(8)))
+                        addView(
+                            TextView(this@MainActivity).apply {
+                                text = "Stay connected to merge nearby photos automatically. New captures sync as soon as they are stored."
+                                textSize = 14f
+                                setTextColor(parseColor("#6b7280"))
+                            },
+                        )
+                        addView(spacer(dp(14)))
+                        addView(nearbyToggleButton)
                     },
                 )
                 addView(spacer(dp(12)))
                 addView(
-                    cardContainer().apply {
-                        addView(nearbyToggleButton)
-                        addView(spacer(dp(12)))
+                    surfaceCard().apply {
+                        addView(
+                            TextView(this@MainActivity).apply {
+                                text = "Maintenance"
+                                textSize = 18f
+                                setTypeface(Typeface.SERIF, Typeface.BOLD)
+                                setTextColor(parseColor("#111827"))
+                            },
+                        )
+                        addView(spacer(dp(10)))
                         addView(clearDataButton)
                         addView(spacer(dp(12)))
                         addView(clearLogButton)
@@ -468,13 +448,13 @@ class MainActivity : ComponentActivity(), AndroidNearbyController.Host {
                 )
                 addView(spacer(dp(12)))
                 addView(
-                    cardContainer().apply {
+                    surfaceCard().apply {
                         addView(
                             TextView(this@MainActivity).apply {
-                                text = "Transport log"
+                                text = "Transport Log"
                                 textSize = 18f
                                 setTypeface(Typeface.SERIF, Typeface.BOLD)
-                                setTextColor(Color.WHITE)
+                                setTextColor(parseColor("#111827"))
                             },
                         )
                         addView(spacer(dp(10)))
@@ -483,18 +463,33 @@ class MainActivity : ComponentActivity(), AndroidNearbyController.Host {
                 )
             }
 
-        val scrollContent =
+        val feedScrollContent =
             LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(contentPadding, contentPadding, contentPadding, contentPadding)
                 addView(feedPage)
+            }
+
+        val settingsScrollContent =
+            LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(contentPadding, contentPadding, contentPadding, contentPadding)
                 addView(configPage)
             }
 
-        val scrollView =
+        feedScrollView =
             ScrollView(this).apply {
-                setBackgroundColor(parseColor("#080d16"))
-                addView(scrollContent)
+                setBackgroundColor(parseColor("#f5f3ef"))
+                isFillViewport = true
+                addView(feedScrollContent)
+            }
+
+        settingsScrollView =
+            ScrollView(this).apply {
+                setBackgroundColor(parseColor("#f5f3ef"))
+                isFillViewport = true
+                visibility = View.GONE
+                addView(settingsScrollContent)
             }
 
         previewView =
@@ -509,7 +504,7 @@ class MainActivity : ComponentActivity(), AndroidNearbyController.Host {
                 setTextColor(Color.WHITE)
                 setTypeface(Typeface.SERIF, Typeface.BOLD)
             }
-        shutterButton = buildAccentButton("Shutter", "#f97316", "#fb7185").apply {
+        shutterButton = buildPrimaryButton("Shutter").apply {
             setOnClickListener { controller.dispatchUiAction(UiAction.CapturePhotoRequested) }
         }
         cancelCaptureButton = buildGhostButton("Cancel").apply {
@@ -535,7 +530,7 @@ class MainActivity : ComponentActivity(), AndroidNearbyController.Host {
                         addView(spacer(dp(8)))
                         addView(
                             TextView(this@MainActivity).apply {
-                                text = "The photo is saved durably first, then ingested into hashtree, then synced by root and block hash."
+                                text = "Capture into LocalGram, store it durably, ingest it into hashtree, then let nearby peers sync missing blocks."
                                 textSize = 13f
                                 setTextColor(parseColor("#d8dfec"))
                             },
@@ -563,7 +558,40 @@ class MainActivity : ComponentActivity(), AndroidNearbyController.Host {
 
         return FrameLayout(this).apply {
             addView(
-                scrollView,
+                LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setBackgroundColor(parseColor("#f5f3ef"))
+                    addView(
+                        headerContainer,
+                        LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.WRAP_CONTENT,
+                        ),
+                    )
+                    addView(
+                        FrameLayout(this@MainActivity).apply {
+                            addView(
+                                feedScrollView,
+                                FrameLayout.LayoutParams(
+                                    FrameLayout.LayoutParams.MATCH_PARENT,
+                                    FrameLayout.LayoutParams.MATCH_PARENT,
+                                ),
+                            )
+                            addView(
+                                settingsScrollView,
+                                FrameLayout.LayoutParams(
+                                    FrameLayout.LayoutParams.MATCH_PARENT,
+                                    FrameLayout.LayoutParams.MATCH_PARENT,
+                                ),
+                            )
+                        },
+                        LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            0,
+                            1f,
+                        ),
+                    )
+                },
                 FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.MATCH_PARENT,
                     FrameLayout.LayoutParams.MATCH_PARENT,
@@ -580,22 +608,18 @@ class MainActivity : ComponentActivity(), AndroidNearbyController.Host {
     }
 
     private fun applyViewState(viewState: ViewState) {
-        statusView.text = viewState.statusText
-        modeView.text = viewState.modeText
-        transportView.text = viewState.linkText
-        storageView.text = viewState.storageText
-        captureQueueView.text = viewState.captureQueueText
-        syncStatusView.text = viewState.syncStatusText
-        lastErrorView.text = viewState.lastSyncErrorText
-        localSummaryFeedView.text = viewState.localSummaryText
-        nearbySummaryFeedView.text = viewState.nearbySummaryText
-        localSummarySettingsView.text = viewState.localSummaryText
-        nearbySummarySettingsView.text = viewState.nearbySummaryText
+        headerPrimaryStatsView.text =
+            "${viewState.localSummaryText}  ·  ${viewState.nearbySummaryText}  ·  ${viewState.linkText}"
+        headerSecondaryStatsView.text =
+            "${viewState.statusText}  ·  ${viewState.captureQueueText}  ·  ${viewState.syncStatusText}  ·  ${viewState.storageText}"
+        val hasError = viewState.lastSyncErrorText != "No sync errors"
+        headerErrorView.text = if (hasError) viewState.lastSyncErrorText else ""
+        headerErrorView.visibility = if (hasError) View.VISIBLE else View.GONE
 
         nearbyToggleButton.text =
             when {
                 viewState.statusText.contains("Starting nearby") -> "Connecting..."
-                viewState.modeText.contains("Nearby") -> "Disconnect"
+                viewState.modeText == "Nearby" -> "Disconnect"
                 else -> "Connect"
             }
 
@@ -615,9 +639,12 @@ class MainActivity : ComponentActivity(), AndroidNearbyController.Host {
     }
 
     private fun applyPage(page: UiPage) {
+        feedScrollView.visibility = if (page == UiPage.FEED) View.VISIBLE else View.GONE
+        settingsScrollView.visibility = if (page == UiPage.SETTINGS) View.VISIBLE else View.GONE
         configPage.visibility = if (page == UiPage.SETTINGS) View.VISIBLE else View.GONE
         feedPage.visibility = if (page == UiPage.FEED) View.VISIBLE else View.GONE
-        setButtonState(pageConfigButton, page != UiPage.SETTINGS && !previewVisible)
+        setHeaderTabState(feedTabButton, page == UiPage.FEED)
+        setHeaderTabState(settingsTabButton, page == UiPage.SETTINGS)
     }
 
     private fun applyFeed(feedItems: List<FeedItem>) {
@@ -666,33 +693,29 @@ class MainActivity : ComponentActivity(), AndroidNearbyController.Host {
     private fun createPhotoCard(item: FeedItem): View {
         val sourceAccent =
             if (item.isLocal) {
-                parseColor("#fb923c")
+                parseColor("#ea580c")
             } else {
-                parseColor("#38bdf8")
+                parseColor("#0f766e")
             }
         val image =
             ImageView(this).apply {
                 layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(280))
                 scaleType = ImageView.ScaleType.CENTER_CROP
-                background = roundedFill(parseColor("#0d1422"), parseColor("#26344a"), dp(24))
+                background = roundedFill(parseColor("#f3f4f6"), parseColor("#e5e7eb"), dp(24))
                 setImageBitmap(loadPreviewBitmap(File(item.renderCachePath), 1080, 720))
                 clipToOutline = true
             }
 
-        return cardContainer(
-            colors = intArrayOf(parseColor("#15111e"), parseColor("#0d1321")),
-            strokeColor = parseColor("#2a3550"),
-            radiusDp = 28,
-        ).apply {
-            addView(buildTag(item.sourceLabel.uppercase(Locale.US), "#111827", colorToHex(sourceAccent)))
+        return surfaceCard().apply {
+            addView(buildTag(item.sourceLabel.uppercase(Locale.US), "#fff7ed", colorToHex(sourceAccent), sourceAccent))
             addView(spacer(dp(12)))
             addView(image)
             addView(spacer(dp(12)))
             addView(
                 TextView(this@MainActivity).apply {
-                    text = if (item.isLocal) "Your Photo" else "Nearby Photo"
+                    text = if (item.isLocal) "Me" else "Received"
                     textSize = 20f
-                    setTextColor(Color.WHITE)
+                    setTextColor(parseColor("#111827"))
                     setTypeface(Typeface.SERIF, Typeface.BOLD)
                 },
             )
@@ -700,15 +723,15 @@ class MainActivity : ComponentActivity(), AndroidNearbyController.Host {
                 TextView(this@MainActivity).apply {
                     text = "${formatTimestamp(item.createdAtMs)}  ·  ${formatByteCount(item.sizeBytes.toLong())}"
                     textSize = 13f
-                    setTextColor(parseColor("#d7def0"))
+                    setTextColor(parseColor("#6b7280"))
                     setPadding(0, dp(6), 0, 0)
                 },
             )
             addView(spacer(dp(10)))
             addView(
                 tagRow(
-                    buildTag(item.sourceLabel.uppercase(Locale.US), "#0f172a", "#334155"),
-                    buildTag("cid ${item.photoCid.takeLast(12)}", "#0f172a", "#3b82f6"),
+                    buildTag(item.sourceLabel.uppercase(Locale.US), "#f8fafc", "#cbd5e1", parseColor("#475569")),
+                    buildTag("cid ${item.photoCid.takeLast(12)}", "#f8fafc", "#cbd5e1", parseColor("#475569")),
                 ),
             )
         }
@@ -757,36 +780,38 @@ class MainActivity : ComponentActivity(), AndroidNearbyController.Host {
         return sampleSize.coerceAtLeast(1)
     }
 
-    private fun buildStatPill(): TextView =
+    private fun buildHeaderStatsText(
+        textSizeSp: Float,
+        color: Int,
+        style: Int,
+    ): TextView =
         TextView(this).apply {
-            setTextColor(Color.WHITE)
-            textSize = 12f
-            setTypeface(Typeface.MONOSPACE, Typeface.BOLD)
-            background = roundedFill(parseColor("#111827"), parseColor("#233047"), dp(20))
-            setPadding(dp(14), dp(12), dp(14), dp(12))
+            setTextColor(color)
+            textSize = textSizeSp
+            setTypeface(Typeface.SANS_SERIF, style)
         }
 
     private fun buildBodyText(): TextView =
         TextView(this).apply {
-            setTextColor(parseColor("#d7def0"))
+            setTextColor(parseColor("#4b5563"))
             textSize = 14f
         }
 
     private fun buildEmptyText(): TextView =
         TextView(this).apply {
-            setTextColor(parseColor("#9fb2ce"))
+            setTextColor(parseColor("#6b7280"))
             textSize = 14f
             setPadding(0, dp(8), 0, 0)
         }
 
-    private fun cardContainer(
-        colors: IntArray = intArrayOf(parseColor("#121929"), parseColor("#0d1321")),
-        strokeColor: Int = parseColor("#243146"),
-        radiusDp: Int = 26,
+    private fun surfaceCard(
+        fillColor: Int = parseColor("#ffffff"),
+        strokeColor: Int = parseColor("#e5e7eb"),
+        radiusDp: Int = 24,
     ): LinearLayout =
         LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = roundedGradient(colors, strokeColor, radiusDp)
+            background = roundedFill(fillColor, strokeColor, radiusDp)
             setPadding(dp(18), dp(18), dp(18), dp(18))
         }
 
@@ -794,38 +819,35 @@ class MainActivity : ComponentActivity(), AndroidNearbyController.Host {
         text: String,
         fillHex: String,
         strokeHex: String,
+        textColor: Int = Color.WHITE,
     ): TextView =
         TextView(this).apply {
             this.text = text
             textSize = 11f
-            setTextColor(Color.WHITE)
+            setTextColor(textColor)
             setTypeface(Typeface.MONOSPACE, Typeface.BOLD)
             background = roundedFill(parseColor(fillHex), parseColor(strokeHex), dp(14))
             setPadding(dp(10), dp(6), dp(10), dp(6))
         }
 
-    private fun buildAccentButton(
-        text: String,
-        startHex: String,
-        endHex: String,
-    ): Button =
+    private fun buildPrimaryButton(text: String): Button =
         Button(this).apply {
             this.text = text
             isAllCaps = false
             setTextColor(Color.WHITE)
             textSize = 14f
             setTypeface(Typeface.SANS_SERIF, Typeface.BOLD)
-            background = roundedGradient(intArrayOf(parseColor(startHex), parseColor(endHex)), parseColor(endHex), 22)
+            background = roundedFill(parseColor("#111827"), parseColor("#111827"), 22)
             setPadding(dp(18), dp(12), dp(18), dp(12))
         }
 
-    private fun buildMutedButton(text: String): Button =
+    private fun buildSecondaryButton(text: String): Button =
         Button(this).apply {
             this.text = text
             isAllCaps = false
-            setTextColor(Color.WHITE)
+            setTextColor(parseColor("#111827"))
             textSize = 14f
-            background = roundedFill(parseColor("#1f2937"), parseColor("#374151"), dp(22))
+            background = roundedFill(parseColor("#f3f4f6"), parseColor("#d1d5db"), dp(22))
             setPadding(dp(18), dp(12), dp(18), dp(12))
         }
 
@@ -833,11 +855,35 @@ class MainActivity : ComponentActivity(), AndroidNearbyController.Host {
         Button(this).apply {
             this.text = text
             isAllCaps = false
-            setTextColor(parseColor("#dbe7ff"))
+            setTextColor(parseColor("#111827"))
             textSize = 14f
-            background = roundedFill(parseColor("#0f172a"), parseColor("#334155"), dp(22))
+            background = roundedFill(parseColor("#ffffff"), parseColor("#d1d5db"), dp(22))
             setPadding(dp(18), dp(12), dp(18), dp(12))
         }
+
+    private fun buildHeaderTabButton(text: String): Button =
+        Button(this).apply {
+            this.text = text
+            isAllCaps = false
+            textSize = 14f
+            setTypeface(Typeface.SANS_SERIF, Typeface.BOLD)
+            setPadding(dp(16), dp(10), dp(16), dp(10))
+            minWidth = 0
+            minimumWidth = 0
+        }
+
+    private fun setHeaderTabState(
+        button: Button,
+        selected: Boolean,
+    ) {
+        button.setTextColor(if (selected) Color.WHITE else parseColor("#475569"))
+        button.background =
+            roundedFill(
+                if (selected) parseColor("#111827") else parseColor("#eef2f7"),
+                if (selected) parseColor("#111827") else parseColor("#eef2f7"),
+                12,
+            )
+    }
 
     private fun setButtonState(
         button: Button,
