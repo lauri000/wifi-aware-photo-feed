@@ -7,6 +7,11 @@ RUST_ROOT="$PROJECT_ROOT/rust"
 APP_MAIN_DIR="$PROJECT_ROOT/app/src/main"
 JNI_DIR="$APP_MAIN_DIR/jniLibs"
 BINDINGS_DIR="$APP_MAIN_DIR/java"
+BUILD_ARGS=()
+
+if [[ "${1:-}" == "--release" ]]; then
+  BUILD_ARGS+=(--release)
+fi
 
 if ! command -v cargo-ndk >/dev/null 2>&1; then
   echo "cargo-ndk is required. Install it with: cargo install cargo-ndk"
@@ -46,7 +51,7 @@ cargo ndk \
   -t x86_64 \
   -t x86 \
   -o "$OUTPUT_DIR" \
-  build -p nearby-hashtree-ffi
+  build "${BUILD_ARGS[@]}" -p nearby-hashtree-ffi
 
 rm -rf "$JNI_DIR"
 mkdir -p "$JNI_DIR"
