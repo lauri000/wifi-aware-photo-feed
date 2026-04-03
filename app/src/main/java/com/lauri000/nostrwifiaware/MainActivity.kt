@@ -309,11 +309,11 @@ class MainActivity : ComponentActivity(), AndroidNearbyController.Host {
                 setPadding(dp(4), dp(4), dp(4), dp(4))
                 addView(
                     feedTabButton,
-                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
+                    LinearLayout.LayoutParams(0, dp(52), 1f),
                 )
                 addView(
                     settingsTabButton,
-                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    LinearLayout.LayoutParams(0, dp(52), 1f).apply {
                         marginStart = dp(6)
                     },
                 )
@@ -943,11 +943,16 @@ class MainActivity : ComponentActivity(), AndroidNearbyController.Host {
         Button(this).apply {
             this.text = text
             isAllCaps = false
+            isSingleLine = true
+            includeFontPadding = false
             textSize = 14f
             setTypeface(Typeface.SANS_SERIF, Typeface.BOLD)
-            setPadding(dp(16), dp(10), dp(16), dp(10))
+            gravity = Gravity.CENTER
+            setPadding(dp(16), 0, dp(16), 0)
             minWidth = 0
             minimumWidth = 0
+            minHeight = 0
+            minimumHeight = 0
         }
 
     private fun setHeaderTabState(
